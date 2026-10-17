@@ -1,0 +1,83 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - arena/5253608e-server
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build PojavLauncher (NeoForge edition) APK
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Get LTW (renderer)
+        run: |
+          cd app_pojavlauncher/libs
+          wget https://github.com/PojavLauncherTeam/LTW/releases/latest/download/ltw-release.aar
+
+      # The upstream artifact source (PojavLauncherTeam/android-openjdk-build-multiarch)
+      # has been archived, so the Java runtime components are taken from the last
+      # official upstream release APK instead.
+      - name: Get Java runtime components (JRE 8/17/21)
+        run: |
+          wget -q https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/gladiolus/PojavLauncher.apk -O /tmp/pojav-official.apk
+          mkdir -p /tmp/pojav-apk && cd /tmp/pojav-apk
+          unzip -q /tmp/pojav-official.apk 'assets/components/jre/*' 'assets/components/jre-new/*' 'assets/components/jre-21/*'
+          for d in jre jre-new jre-21; do
+            mkdir -p "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/$d"
+            cp -r assets/components/$d/* "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/$d/"
+          done
+          echo "--- Extracted runtime components: ---"
+          find "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components" -maxdepth 2 | sort
+          test -f "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/jre/universal.tar.xz"
+          test -f "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/jre-new/universal.tar.xz"
+          test -f "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/jre-21/universal.tar.xz"
+          test -f "$GITHUB_WORKSPACE/app_pojavlauncher/src/main/assets/components/jre-21/version"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11"
+
+      - name: Build JRE JAR files
+        run: |
+          ./scripts/languagelist_updater.sh
+          mkdir out
+          # Build JRE JAR files (security manager, etc...)
+          gradle :jre_lwjgl3glfw:build --no-daemon
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build Debug APK
+        run: |
+          # Build the launcher
+          gradle :app_pojavlauncher:assembleDebug --no-daemon
+          mv app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk out/PojavLauncher-NeoForge-1.21.1-debug.apk
+
+      - name: Gen md5sums
+        run: |
+          md5sum out/PojavLauncher-NeoForge-1.21.1-debug.apk > out/PojavLauncher-NeoForge-1.21.1-debug.md5
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PojavLauncher-NeoForge-1.21.1-debug
+          path: out/PojavLauncher-NeoForge-1.21.1-debug.*
