@@ -188,9 +188,14 @@ public final class SearchUi {
                         find.setEnabled(true);
                         find.setAlpha(1f);
                         if (!results.isEmpty()) {
+                            Set<String> savedPages = new HashSet<>();
+                            for (Archive.Page page : Archive.pages(activity)) {
+                                if (page.url != null) savedPages.add(Archive.normalize(page.url));
+                            }
                             Set<String> archived = new HashSet<>();
                             for (YandexSearch.Result r : results) {
-                                if (Archive.has(activity, r.url)) archived.add(Archive.normalize(r.url));
+                                String key = Archive.normalize(r.url);
+                                if (savedPages.contains(key)) archived.add(key);
                             }
                             adapter.setItems(results, archived);
                             list.setVisibility(View.VISIBLE);

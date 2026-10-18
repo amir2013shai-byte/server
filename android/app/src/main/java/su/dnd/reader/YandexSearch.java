@@ -44,7 +44,7 @@ public class YandexSearch {
     private static final int MAX_PARSE_STEPS = 7;
     private static final long PARSE_DELAY_MS = 900;
     private static final long FIRST_PARSE_DELAY_MS = 1300;
-    private static final long TIMEOUT_MS = 30000;
+    private static final long TIMEOUT_MS = 45000;
 
     private final Activity activity;
     private final ViewGroup host;
@@ -130,7 +130,7 @@ public class YandexSearch {
         host.addView(web);
     }
 
-    private final Runnable timeout = () -> fail("Яндекс не ответил за 30 секунд. Попробуйте ещё раз.");
+    private final Runnable timeout = () -> fail("Яндекс не ответил за 45 секунд. Попробуйте ещё раз.");
 
     private final Runnable parse = this::parseStep;
 
