@@ -2,6 +2,7 @@ package su.dnd.reader;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.view.WindowManager;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
@@ -110,7 +111,7 @@ public final class SyncUi {
         box.addView(details);
 
         TextView hint = Ui.secondary(activity,
-                "Страницы сохраняются вместе с изображениями и оформлением. Уже сохранённые страницы повторно не скачиваются, поэтому при следующей синхронизации добавятся новые.",
+                "Страницы сохраняются вместе с изображениями и оформлением. Уже сохранённые страницы повторно не скачиваются, поэтому при следующей синхронизации добавятся новые. Не закрывайте приложение во время скачивания.",
                 12);
         hint.setPadding(0, Ui.dp(activity, 10), 0, Ui.dp(activity, 6));
         box.addView(hint);
@@ -144,6 +145,7 @@ public final class SyncUi {
                               int limit, boolean details, final Runnable onDone) {
         final AlertDialog progress = Ui.progressDialog(activity, cat.title,
                 "Подготовка…", true, null);
+        activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         final Downloader downloader = new Downloader(activity, host);
         active = downloader;
         progress.show();
@@ -165,6 +167,7 @@ public final class SyncUi {
 
             @Override
             public void onFinished(int saved, int failed, String error) {
+                activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 if (active == downloader) active = null;
                 if (progress.isShowing()) progress.dismiss();
                 String text;

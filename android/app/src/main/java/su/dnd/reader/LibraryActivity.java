@@ -118,6 +118,8 @@ public class LibraryActivity extends Activity {
         list.setVisibility(all.isEmpty() ? View.GONE : View.VISIBLE);
         if (all.isEmpty()) {
             stats.setText("Библиотека пуста");
+        } else if (shown.isEmpty()) {
+            stats.setText("Ничего не найдено · всего " + all.size() + " стр.");
         }
     }
 
