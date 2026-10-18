@@ -117,6 +117,7 @@ public class MainActivity extends android.app.Activity {
                     .setTitle("Добро пожаловать в D&D.su")
                     .setMessage("Это неофициальное приложение-клиент справочника dnd.su.\n\n"
                             + "• Кнопка-закладка вверху сохраняет открытую страницу вместе с изображениями — её можно читать без интернета.\n\n"
+                            + "• Меню → «Поиск в Яндексе» ищет по всему домену dnd.su и показывает найденные страницы ссылками с заголовками.\n\n"
                             + "• Меню → «Скачать раздел» загружает весь раздел (например, «Заклинания») в офлайн-библиотеку.\n\n"
                             + "• Сохранённые страницы доступны на вкладке «Офлайн».\n\n"
                             + "Контент принадлежит авторам сайта dnd.su.")
@@ -273,14 +274,14 @@ public class MainActivity extends android.app.Activity {
                 localPage = url.contains(Archive.LOCAL_HOST);
                 if (!localPage) {
                     originalUrl = url;
-                    Prefs.setLastUrl(MainActivity.this, url);
+                    if (!WebUtils.isYandex(url)) Prefs.setLastUrl(MainActivity.this, url);
                 }
             }
             if (localPage) {
                 web.evaluateJavascript(Js.localize(MainActivity.this), null);
                 String source = extractSource();
                 if (source != null) originalUrl = source;
-            } else if (!url.startsWith("data:")) {
+            } else if (!url.startsWith("data:") && !WebUtils.isYandex(url)) {
                 applyPagePreferences(url);
             }
             updateMeta();
@@ -382,7 +383,7 @@ public class MainActivity extends android.app.Activity {
             return true;
         }
         if (Archive.LOCAL_HOST.equals(uri.getHost())) return false;
-        if (WebUtils.isDnd(url)) return false;
+        if (WebUtils.isDnd(url) || WebUtils.isYandex(url)) return false;
         openExternal(url);
         return true;
     }
@@ -529,6 +530,7 @@ public class MainActivity extends android.app.Activity {
     @Override
     protected void onDestroy() {
         SyncUi.destroyActive();
+        YandexSearch.destroyActive();
         if (saveBridge != null) saveBridge.disarm();
         if (downloader != null) downloader.destroy();
         if (web != null) {
@@ -639,6 +641,11 @@ public class MainActivity extends android.app.Activity {
                 v -> {
                     dismiss(holder);
                     startActivity(new Intent(this, LibraryActivity.class));
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_search, "Поиск в Яндексе",
+                "Заголовки и ссылки со всего домена dnd.su", v -> {
+                    dismiss(holder);
+                    SearchUi.show(this, syncHost, url -> load(url));
                 }));
         box.addView(Ui.menuRow(this, R.drawable.ic_download, "Скачать раздел…",
                 "Сохранить страницы для чтения без интернета", v -> {

@@ -28,6 +28,61 @@ public final class SyncUi {
         }
     }
 
+    public interface Done {
+        void onDone(boolean saved);
+    }
+
+    /** True while a section download or a single page save is running. */
+    public static boolean isRunning() {
+        return active != null;
+    }
+
+    /** Saves one page (e.g. a Yandex search result) into the offline archive. */
+    public static void downloadPage(final Activity activity, final ViewGroup host,
+                                    final String url, final Done done) {
+        if (active != null) {
+            Ui.toast(activity, "Дождитесь окончания скачивания раздела");
+            return;
+        }
+        final AlertDialog progress = Ui.progressDialog(activity, "Сохранение страницы",
+                "Открываем страницу…", true, null);
+        activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        final Downloader downloader = new Downloader(activity, host);
+        active = downloader;
+        progress.show();
+        progress.setOnCancelListener(d -> downloader.cancel());
+        progress.setOnShowListener(d -> {
+            android.widget.Button cancel = progress.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (cancel != null) cancel.setOnClickListener(v -> {
+                downloader.cancel();
+                progress.dismiss();
+            });
+        });
+        downloader.startSingle(url, new Downloader.Listener() {
+            @Override
+            public void onProgress(int done, int total, String message) {
+                if (progress.isShowing()) Ui.setProgressMessage(progress, message);
+            }
+
+            @Override
+            public void onFinished(int saved, int failed, String error) {
+                activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                if (active == downloader) active = null;
+                if (progress.isShowing()) progress.dismiss();
+                String text;
+                if (saved > 0) {
+                    text = "Сохранено в офлайн-библиотеку";
+                } else if (error != null) {
+                    text = error;
+                } else {
+                    text = "Страница не сохранилась";
+                }
+                Ui.toast(activity, text);
+                if (done != null) done.onDone(saved > 0);
+            }
+        });
+    }
+
     public static void show(final Activity activity, final ViewGroup host, final Runnable onDone) {
         final int pad = Ui.dp(activity, 20);
         final LinearLayout box = Ui.vertical(activity);

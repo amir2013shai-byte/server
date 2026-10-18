@@ -76,6 +76,15 @@ public final class WebUtils {
         }
     }
 
+    public static boolean isYandex(String url) {
+        String h = host(url).toLowerCase();
+        if (h.isEmpty()) return false;
+        return h.equals("yandex.ru") || h.endsWith(".yandex.ru")
+                || h.equals("yandex.com") || h.endsWith(".yandex.com")
+                || h.equals("yandex.net") || h.endsWith(".yandex.net")
+                || h.equals("ya.ru") || h.endsWith(".ya.ru");
+    }
+
     public static boolean isDnd(String url) {
         String h = host(url).toLowerCase();
         return h.equals("dnd.su") || h.endsWith(".dnd.su") || h.equals("dnd.su");

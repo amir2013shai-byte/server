@@ -133,6 +133,56 @@ public class Downloader {
         });
     }
 
+    /**
+     * Downloads a single page (used by the Yandex search results). The page is fetched in the
+     * hidden WebView, embedded like during a normal save and written to the offline archive.
+     */
+    public void startSingle(final String url, Listener listener) {
+        if (destroyed) return;
+        this.listener = listener;
+        this.cat = null;
+        this.limit = 1;
+        this.details = true;
+        this.total = 1;
+        this.done = 0;
+        this.failed = 0;
+        this.index = 0;
+        this.queue = new ArrayList<>();
+        this.cancelled = false;
+        this.finished = false;
+        this.loading = false;
+        this.lastFoundCount = -1;
+        this.stagnantSteps = 0;
+        this.savedUrls = new HashSet<>();
+        progress("Открываем страницу…");
+        load(url, ok -> {
+            if (!ok) {
+                finish("Нет соединения с dnd.su. Проверьте подключение к интернету.");
+                return;
+            }
+            PageSaver.readMeta(web, (metaUrl, title) -> {
+                final String finalUrl = metaUrl != null && WebUtils.isDnd(metaUrl) ? metaUrl : url;
+                final String finalTitle = (title == null || title.trim().isEmpty())
+                        ? titleFromUrl(finalUrl) : title.trim();
+                progress("Сохраняем: " + Ui.ellipsize(finalTitle, 40));
+                PageSaver.save(activity, web, bridge, finalUrl, finalTitle,
+                        Categories.categoryKey(finalUrl), new PageSaver.Result() {
+                            @Override
+                            public void onSaved(long bytes) {
+                                done++;
+                                finish(null);
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                failed++;
+                                finish("Не удалось сохранить: " + message);
+                            }
+                        });
+            });
+        });
+    }
+
     private void saveIndex() {
         progress("Сохраняем страницу раздела…");
         PageSaver.readMeta(web, (url, title) -> {
