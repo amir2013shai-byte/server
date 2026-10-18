@@ -10,9 +10,10 @@
 
 | Способ | Ссылка |
 |---|---|
-| **Готовый файл в репозитории** | [`release/dndsu-reader-1.0.apk`](release/dndsu-reader-1.0.apk) |
-| Свежая сборка GitHub Actions | вкладка **Actions** → последний запуск → *Artifacts* → `dndsu-reader-apk` |
-| Последний релиз | раздел **Releases** → `latest` |
+| **Прямая ссылка на APK** | <https://github.com/amir2013shai-byte/server/releases/latest/download/dndsu-reader.apk> |
+| Файл в репозитории | [`release/dndsu-reader-1.0.apk`](release/dndsu-reader-1.0.apk) |
+| Сборка из GitHub Actions | вкладка **Actions** → последний запуск → *Artifacts* → `dndsu-reader-apk` |
+| Все релизы | раздел **Releases** |
 
 Установка: скачайте APK на телефон, откройте файл и разрешите установку из этого источника
 («Настройки → Безопасность → Установка неизвестных приложений»). Требуется **Android 5.0+**
