@@ -1,18 +1,20 @@
 (function () {
-  var tries = 0, clicked = 0;
-  var id = setInterval(function () {
-    tries++;
+  try {
     var els = document.querySelectorAll('button, a, div, span');
     for (var i = 0; i < els.length; i++) {
+      var tag = (els[i].tagName || '').toLowerCase();
+      if (tag === 'a') {
+        var href = els[i].getAttribute('href') || '';
+        if (href && href.charAt(0) !== '#' && href.indexOf('javascript:') !== 0) continue;
+      }
       var t = (els[i].textContent || '').trim().toLowerCase();
       if (t === 'загрузить больше' || t === 'показать ещё' || t === 'показать еще' ||
-          t === 'показать больше' || t === 'load more') {
-        try { els[i].click(); clicked++; } catch (e) {}
-        if (clicked > 5) { clearInterval(id); return 'ok'; }
-        break;
+          t === 'показать больше' || t === 'load more' || t === 'показать все') {
+        try { els[i].click(); return 'clicked'; } catch (e) { return 'error'; }
       }
     }
-    if (tries > 12) { clearInterval(id); }
-  }, 350);
-  return 'ok';
+    return 'none';
+  } catch (e) {
+    return 'error';
+  }
 })()

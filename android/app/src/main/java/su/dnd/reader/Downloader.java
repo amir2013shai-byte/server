@@ -54,6 +54,9 @@ public class Downloader {
     private boolean destroyed;
     private LoadCb loadCb;
     private String expectedUrl;
+    private int lastFoundCount = -1;
+    private int stagnantSteps = 0;
+    private Set<String> savedUrls = new HashSet<>();
 
     private final Runnable loadTimeout = () -> onLoadResult(false);
 
@@ -114,6 +117,12 @@ public class Downloader {
         this.queue = new ArrayList<>();
         this.cancelled = false;
         this.finished = false;
+        this.lastFoundCount = -1;
+        this.stagnantSteps = 0;
+        this.savedUrls = new HashSet<>();
+        for (Archive.Page p : Archive.pages(activity)) {
+            if (p.url != null) savedUrls.add(Archive.normalize(p.url));
+        }
         progress("Открываем раздел «" + category.title + "»…");
         load(category.url, ok -> {
             if (!ok) {
@@ -153,65 +162,102 @@ public class Downloader {
         });
     }
 
-    /** Scrolls the list page and clicks "load more" so more links become available. */
+    /**
+     * Expands the section list (clicks "load more") until enough pages that are not saved yet
+     * are found, then starts downloading them.
+     */
     private void expandAndCollect() {
         progress("Ищем страницы раздела…");
         try {
             web.evaluateJavascript(Js.get(activity, "scroll"), null);
         } catch (Exception ignored) {
         }
-        handler.postDelayed(() -> {
-            try {
-                web.evaluateJavascript(Js.get(activity, "expand"), null);
-            } catch (Exception ignored) {
-            }
-        }, 1200);
-        handler.postDelayed(() -> {
-            try {
-                web.evaluateJavascript(Js.get(activity, "scroll"), null);
-            } catch (Exception ignored) {
-            }
-        }, 2600);
-        handler.postDelayed(this::collectLinks, 4200);
+        handler.postDelayed(() -> searchStep(0), 900);
     }
 
-    private void collectLinks() {
+    private void searchStep(final int attempt) {
         if (finished) return;
         try {
             web.evaluateJavascript(Js.get(activity, "collect"), value -> {
                 if (finished) return;
-                List<String> found = new ArrayList<>();
-                Set<String> seen = new HashSet<>();
-                try {
-                    JSONArray arr = new JSONArray(value == null ? "[]" : value);
-                    for (int i = 0; i < arr.length() && found.size() < limit; i++) {
-                        JSONArray pair = arr.optJSONArray(i);
-                        if (pair == null) continue;
-                        String u = pair.optString(0, "");
-                        if (u.isEmpty()) continue;
-                        String norm = Archive.normalize(u);
-                        if (!WebUtils.isDnd(norm)) continue;
-                        if (norm.equals(Archive.normalize(cat.url))) continue;
-                        if (!cat.isDetail(norm)) continue;
-                        if (seen.contains(norm)) continue;
-                        if (Archive.has(activity, norm)) continue;
-                        seen.add(norm);
-                        found.add(norm);
-                    }
-                } catch (Exception ignored) {
+                List<String> found = parseLinks(value);
+                if (found.size() >= limit || attempt >= 30) {
+                    startQueue(found);
+                    return;
                 }
-                queue = found;
-                total = 1 + queue.size();
-                index = 0;
-                if (queue.isEmpty()) {
-                    finish(null);
+                progress("Ищем страницы: уже найдено " + found.size() + "…");
+                if (found.size() == lastFoundCount) {
+                    stagnantSteps++;
                 } else {
-                    progress("Найдено страниц: " + queue.size());
-                    next();
+                    stagnantSteps = 0;
+                    lastFoundCount = found.size();
+                }
+                if (stagnantSteps >= 4) {
+                    startQueue(found);
+                    return;
+                }
+                try {
+                    web.evaluateJavascript(Js.get(activity, "expand"), v -> {
+                        if (finished) return;
+                        boolean clicked = v != null && v.contains("clicked");
+                        if (!clicked) {
+                            startQueue(found);
+                            return;
+                        }
+                        if (attempt % 5 == 4) {
+                            try {
+                                web.evaluateJavascript(Js.get(activity, "scroll"), null);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        handler.postDelayed(() -> searchStep(attempt + 1), 750);
+                    });
+                } catch (Exception e) {
+                    startQueue(found);
                 }
             });
         } catch (Exception e) {
             finish("Не удалось получить список страниц");
+        }
+    }
+
+    private List<String> parseLinks(String value) {
+        List<String> found = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        try {
+            JSONArray arr = new JSONArray(value == null ? "[]" : value);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONArray pair = arr.optJSONArray(i);
+                if (pair == null) continue;
+                String u = pair.optString(0, "");
+                if (u.isEmpty()) continue;
+                String norm = Archive.normalize(u);
+                if (!WebUtils.isDnd(norm)) continue;
+                if (norm.equals(Archive.normalize(cat.url))) continue;
+                if (!cat.isDetail(norm)) continue;
+                if (seen.contains(norm)) continue;
+                if (savedUrls.contains(norm) || Archive.has(activity, norm)) continue;
+                seen.add(norm);
+                found.add(norm);
+            }
+        } catch (Exception ignored) {
+        }
+        return found;
+    }
+
+    private void startQueue(List<String> found) {
+        if (finished) return;
+        queue = new ArrayList<>();
+        for (int i = 0; i < found.size() && queue.size() < limit; i++) {
+            queue.add(found.get(i));
+        }
+        total = 1 + queue.size();
+        index = 0;
+        if (queue.isEmpty()) {
+            finish(null);
+        } else {
+            progress("Найдено новых страниц: " + queue.size());
+            next();
         }
     }
 
@@ -246,6 +292,7 @@ public class Downloader {
             PageSaver.save(activity, web, bridge, url, finalTitle, cat.key, new PageSaver.Result() {
                 @Override
                 public void onSaved(long bytes) {
+                    savedUrls.add(Archive.normalize(url));
                     done++;
                     index++;
                     next();
