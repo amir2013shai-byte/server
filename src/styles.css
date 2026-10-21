@@ -12,7 +12,22 @@ body { user-select: none; -webkit-user-select: none; }
 button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 
-#app { height: 100%; }
+#app {
+  height: 100%;
+  /* «телефонное» окно на широких экранах: колонка по центру, без растяжения */
+  max-width: min(460px, 58vh);
+  width: 100%;
+  margin: 0 auto;
+  background: #14182b;
+  box-shadow: 0 0 80px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+@media (min-width: 760px) {
+  body {
+    background:
+      radial-gradient(circle at 50% 0%, #1d2440 0%, #0d1020 70%);
+  }
+}
 
 /* ————— загрузка ————— */
 #boot-splash {

@@ -7,6 +7,10 @@ const PLAYER_RING = '#4a90ff';
 const ENEMY_RING = '#e05555';
 const MARGIN = 1.35; // поля за стенами
 
+function clampN(v, a, b) {
+  return v < a ? a : v > b ? b : v;
+}
+
 export class BattleView {
   constructor(container, battle, opts = {}) {
     this.container = container;
@@ -47,12 +51,24 @@ export class BattleView {
     };
   }
 
-  worldToScreen(x, y) {
+  // равномерный масштаб + letterbox: арена НЕ растягивается на широких экранах
+  _viewTransform() {
     const b = this._bounds();
+    const worldW = b.maxX - b.minX, worldH = b.maxY - b.minY;
     const w = this.canvas.width || 1, h = this.canvas.height || 1;
+    const scale = Math.min(w / worldW, h / worldH);
     return {
-      x: ((x - b.minX) / (b.maxX - b.minX)) * w,
-      y: ((b.maxY - y) / (b.maxY - b.minY)) * h
+      b, scale,
+      ox: (w - worldW * scale) / 2,
+      oy: (h - worldH * scale) / 2
+    };
+  }
+
+  worldToScreen(x, y) {
+    const t = this._viewTransform();
+    return {
+      x: t.ox + (x - t.b.minX) * t.scale,
+      y: t.oy + (t.b.maxY - y) * t.scale
     };
   }
 
@@ -62,13 +78,14 @@ export class BattleView {
     if (!el) return null;
     const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
     if (!rect.width || !rect.height) return null;
-    const b = this._bounds();
-    const px = (clientX - rect.left) / rect.width;
-    const py = (clientY - rect.top) / rect.height;
-    return {
-      x: b.minX + px * (b.maxX - b.minX),
-      y: b.maxY - py * (b.maxY - b.minY)
-    };
+    // CSS-пиксели → пиксели холста
+    const devX = (clientX - rect.left) / rect.width * (this.canvas.width || 1);
+    const devY = (clientY - rect.top) / rect.height * (this.canvas.height || 1);
+    const t = this._viewTransform();
+    // клики по полям-«полям» (letterbox) прижимаем к краю арены
+    const x = clampN((devX - t.ox) / t.scale + t.b.minX, t.b.minX, t.b.maxX);
+    const y = clampN(t.b.maxY - (devY - t.oy) / t.scale, t.b.minY, t.b.maxY);
+    return { x, y };
   }
 
   // Показать «призрак» карты в точке экрана (для перетаскивания из руки).
@@ -307,9 +324,8 @@ export class BattleView {
   }
 
   _scale(world) {
-    // сколько пикселей в 1 условной единице арены
-    const b = this._bounds();
-    return (this.canvas.width || 1) / (b.maxX - b.minX);
+    // сколько пикселей в 1 условной единице арены (единый масштаб)
+    return this._viewTransform().scale;
   }
 
   _drawArena(ctx, W, H) {

@@ -184,6 +184,9 @@ export class Battle {
     // разлипание
     this._separate(dt);
 
+    // вода непроходима: возвращаем наземных в мосты/на берега
+    for (const u of this.units) this._constrainToLand(u);
+
     // уборка трупов
     this.units = this.units.filter((u) => u.alive);
 
@@ -668,15 +671,25 @@ export class Battle {
     if (u.speed <= 0) return;
     let gx = goal.x, gy = goal.y;
 
-    // мосты: если цель через реку — идти к мосту
-    if (!u.flying && target) {
-      const unitSide = Math.sign(u.y);
-      const targetSide = Math.sign(target.y);
-      if (unitSide !== targetSide && Math.abs(u.y) > ARENA.riverY) {
-        const bx = Math.abs(u.x - ARENA.bridgeX) < Math.abs(u.x + ARENA.bridgeX) ? ARENA.bridgeX : -ARENA.bridgeX;
-        gx = bx * (Math.abs(u.x) > 1 ? Math.sign(u.x) : (Math.sign(target.x) || 1));
-        gx = Math.abs(gx) < 1 ? ARENA.bridgeX * (Math.sign(target.x) || 1) : gx;
-        gy = 0;
+    // мосты: наземный юнит пересекает реку ТОЛЬКО по мосту (хитбокс воды)
+    if (!u.flying) {
+      const goalSide = gy === 0 ? (u.team === 'player' ? -1 : 1) : Math.sign(gy);
+      const unitSide = Math.sign(u.y) || goalSide;
+      const inRiver = Math.abs(u.y) <= ARENA.riverY;
+      const wrongWay = unitSide !== goalSide;
+      if (inRiver || wrongWay) {
+        // мост, через который короче всего путь к цели
+        const score = (b) => Math.abs(u.x - b) + Math.abs(gx - b);
+        const bx = score(-ARENA.bridgeX) <= score(ARENA.bridgeX) ? -ARENA.bridgeX : ARENA.bridgeX;
+        if (inRiver) {
+          // на мосту/у реки — идти к выходу моста на сторону цели
+          gx = bx;
+          gy = ARENA.riverY * goalSide * 1.35;
+        } else {
+          // на берегу, цель через реку — идти к входу моста на своей стороне
+          gx = bx;
+          gy = ARENA.riverY * unitSide * 1.35;
+        }
       }
     }
 
@@ -688,6 +701,24 @@ export class Battle {
     u.y += (dy / d) * Math.min(step, d);
     u.x = clamp(u.x, -ARENA.halfW + 0.3, ARENA.halfW - 0.3);
     u.y = clamp(u.y, -ARENA.halfH + 0.3, ARENA.halfH - 0.3);
+  }
+
+  // «хитбокс» реки: наземные юниты не могут находиться в воде вне мостов
+  _constrainToLand(u) {
+    if (!u || !u.alive || u.flying || u.isBuilding || u.isTower) return;
+    if (Math.abs(u.y) >= ARENA.riverY) return;
+    const half = ARENA.bridgeHalfW + 0.25;
+    const inL = Math.abs(u.x + ARENA.bridgeX) <= half;
+    const inR = Math.abs(u.x - ARENA.bridgeX) <= half;
+    if (inL || inR) return; // на мосту — можно
+    // рядом с мостом — вернуться на мост; далеко — вытолкнуть на ближайший берег
+    const near = Math.abs(u.x + ARENA.bridgeX) < Math.abs(u.x - ARENA.bridgeX) ? -ARENA.bridgeX : ARENA.bridgeX;
+    const off = u.x - near;
+    if (Math.abs(off) <= half + 1.1) {
+      u.x = near + Math.sign(off || 1) * (half - 0.02);
+    } else {
+      u.y = (u.y > 0 ? 1 : u.y < 0 ? -1 : (u.team === 'player' ? -1 : 1)) * ARENA.riverY;
+    }
   }
 
   _separate(dt) {

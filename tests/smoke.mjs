@@ -1,6 +1,6 @@
 // Смоук-тест боевого движка без рендера (node).
 import { ALL_CARDS, withCustom, getCard } from '../src/data/cards.js';
-import { Battle, MATCH_TIME } from '../src/game/engine.js';
+import { Battle, MATCH_TIME, ARENA } from '../src/game/engine.js';
 import { BattleAI } from '../src/game/ai.js';
 
 let failed = 0;
@@ -119,6 +119,34 @@ check('гибель боковой будит главную', kingAi.activated 
 const kingP = b4.towers.find((t) => t.kind === 'king' && t.team === 'player');
 b4._damage(kingP, 10, {});
 check('урон по главной будит её', kingP.activated === true);
+
+// ——— мосты и «хитбокс» воды ———
+const b5 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const walker = b5.deploy('giant', -7, -8, 'player', { free: true });
+if (walker) walker.speed = Math.max(walker.speed, 1.4);
+let inWaterOffBridge = 0;
+for (let t = 0; t < 24; t += 0.05) {
+  b5.update(0.05);
+  for (const u of b5.units) {
+    if (u.flying || u.isBuilding) continue;
+    const onBridge = Math.abs(Math.abs(u.x) - ARENA.bridgeX) <= ARENA.bridgeHalfW + 0.26;
+    if (Math.abs(u.y) < ARENA.riverY - 0.01 && !onBridge) inWaterOffBridge++;
+  }
+}
+check('наземные юниты не заходят в воду вне мостов', inWaterOffBridge === 0);
+check('гигант дошёл до моста/через реку', walker && (walker.y > ARENA.riverY || Math.abs(walker.y) < ARENA.riverY + 0.5));
+
+// выталкивание из воды
+const b6 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const frog = b6._makeUnit(getCard('knight'), 'player', 0, 0, {});
+b6._constrainToLand(frog);
+check('юнит в центре реки вытолкнут с воды', Math.abs(frog.y) >= ARENA.riverY);
+const onBridgeU = b6._makeUnit(getCard('knight'), 'player', ARENA.bridgeX, 0, {});
+b6._constrainToLand(onBridgeU);
+check('юнит на мосту не тронут', onBridgeU.y === 0 && onBridgeU.x === ARENA.bridgeX);
+const bird = b6._makeUnit(getCard('minions'), 'player', 0, 0, {});
+b6._constrainToLand(bird);
+check('летающий юнит может быть над водой', bird.y === 0);
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);
