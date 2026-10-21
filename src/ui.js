@@ -18,7 +18,7 @@ import { ArtEditor } from './render/artEditor.js';
 import { baseSprite, clearSpriteCache, emptyArt } from './render/art2d.js';
 import { NetClient, RemoteBattle, buildHostSnapshot, applyIntentToBattle } from './net.js';
 
-const DEFAULT_NET_URL = 'https://8787-i3gumlij2i0jlute17dom.e2b.app';
+const DEFAULT_NET_URL = 'https://8787-i2oxdp3la5edr88fbz8my.e2b.app';
 
 const TYPE_LABELS = { troop: 'Войско', spell: 'Заклинание', building: 'Здание' };
 const TYPE_ICONS = { troop: '⚔️', spell: '✨', building: '🏰' };
