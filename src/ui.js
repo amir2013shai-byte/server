@@ -8,6 +8,9 @@ import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
 import { ModelEditor } from './render/modelEditor.js';
+import { NetClient, RemoteBattle, buildHostSnapshot, applyIntentToBattle } from './net.js';
+
+const DEFAULT_NET_URL = 'https://8787-i3gumlij2i0jlute17dom.e2b.app';
 
 const TYPE_LABELS = { troop: 'Войско', spell: 'Заклинание', building: 'Здание' };
 const TYPE_ICONS = { troop: '⚔️', spell: '✨', building: '🏰' };
@@ -386,6 +389,18 @@ export class App {
             <div class="muted" style="font-size:11px;margin-top:4px">Можно играть дисбалансными картами</div>
           </button>
           <div class="form-section">
+            <h3>🌐 Онлайн-бой 1×1</h3>
+            <div class="muted mb12">Играйте с другом по сети: создайте комнату и сообщите ему код.</div>
+            <button class="btn btn-primary btn-block" id="b-online-create" style="margin-bottom:10px">🌐 Создать комнату</button>
+            <div class="row">
+              <input class="input" id="net-code" maxlength="6" placeholder="Код комнаты" style="flex:1;min-width:120px;text-transform:uppercase">
+              <button class="btn btn-blue" id="b-online-join">Войти</button>
+            </div>
+            <div class="muted mt8" style="font-size:11px">Сервер: <span id="net-url-label">${escapeHtml(this.settings.netServer || DEFAULT_NET_URL)}</span>
+              <button class="btn btn-chip" id="net-url-edit" style="margin-left:6px">⚙</button>
+            </div>
+          </div>
+          <div class="form-section">
             <h3>Дружеский бой с другом</h3>
             ${friends.length
               ? `<div class="row wrap">${friends.map((f) => `
@@ -430,6 +445,216 @@ export class App {
         this.startBattle('friendly', f || null);
       };
     });
+    this.root.querySelector('#b-online-create').onclick = () => { this.sfx.play('ui'); this._netCreate(); };
+    this.root.querySelector('#b-online-join').onclick = () => {
+      this.sfx.play('ui');
+      const code = (this.root.querySelector('#net-code').value || '').trim();
+      if (!code) {
+        this.toast('Введите код комнаты');
+        return;
+      }
+      this._netJoin(code);
+    };
+    this.root.querySelector('#net-url-edit').onclick = async () => {
+      const ov = document.createElement('div');
+      ov.className = 'overlay';
+      ov.innerHTML = `
+        <div class="modal" style="text-align:left">
+          <h2>Сетевой сервер</h2>
+          <p class="muted">Адрес релея для онлайн-боёв. По умолчанию — сервер этой сборки.
+          Свой: разверните tools/net/relay.mjs и укажите http://ip:8787</p>
+          <input class="input" id="net-url-input" style="width:100%" value="${escapeHtml(this.settings.netServer || DEFAULT_NET_URL)}">
+          <div class="row mt12">
+            <button class="btn btn-primary" data-a="save">Сохранить</button>
+            <button class="btn btn-ghost" data-a="close">Отмена</button>
+          </div>
+        </div>`;
+      ov.addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-a]');
+        if (!b) return;
+        if (b.dataset.a === 'save') {
+          this.settings.netServer = ov.querySelector('#net-url-input').value.trim() || DEFAULT_NET_URL;
+          storage.setSettings(this.settings);
+          this.toast('Сервер сохранён');
+        }
+        ov.remove();
+      });
+      document.body.appendChild(ov);
+    };
+  }
+
+  // ————— онлайн-бой —————
+
+  _netUrl() {
+    return (this.settings.netServer || DEFAULT_NET_URL).trim().replace(/\/+$/, '');
+  }
+
+  _netMakeClient() {
+    if (this.net) {
+      try { this.net.close(); } catch { /* ignore */ }
+    }
+    const net = new NetClient(this._netUrl());
+    this.net = net;
+    this._onlineWaiting = true;
+    net.onPeer = (joined) => {
+      if (!joined) this._netHandleLost();
+    };
+    net.onStatus = (st) => {
+      if (st === 'lost') this._netHandleLost();
+    };
+    return net;
+  }
+
+  _netHandleLost() {
+    if (this._onlineWaiting) {
+      this.toast('Соперник отключился');
+      this._netCancelWait();
+      return;
+    }
+    if (this.battleMode && this.battleMode.startsWith('online') && this.battle && !this.battle.finished) {
+      this.toast('Соединение потеряно');
+      this._netCloseAndFinish();
+    }
+  }
+
+  _netCloseAndFinish() {
+    try { this.net && this.net.close(); } catch { /* ignore */ }
+    this.net = null;
+    this._onlineWaiting = false;
+    if (this.battle && !this.battle.finished) {
+      this.battle.finished = true;
+      this.battle.result = { winner: 'draw', reason: 'disconnect' };
+      this._showResult();
+    }
+  }
+
+  async _netCreate() {
+    if (this.deck.length < 4) {
+      this.toast('В колоде должно быть минимум 4 карты');
+      return;
+    }
+    const net = this._netMakeClient();
+    this.showOnlineWait('host', '……');
+    try {
+      await net.connect();
+    } catch {
+      this.toast('Сервер недоступен: ' + this._netUrl());
+      this._netCancelWait();
+      return;
+    }
+    let code;
+    try {
+      code = await net.createRoom();
+    } catch (e) {
+      this.toast(e.message || 'Не удалось создать комнату');
+      this._netCancelWait();
+      return;
+    }
+    this._onlineRoom = code;
+    this.showOnlineWait('host', code);
+    net.onMessage = (msg) => this._netOnMessage(msg);
+  }
+
+  async _netJoin(code) {
+    const net = this._netMakeClient();
+    this.showOnlineWait('guest', code);
+    try {
+      await net.connect();
+      await net.joinRoom(code);
+    } catch (e) {
+      this.toast(e.message || 'Не удалось войти в комнату');
+      this._netCancelWait();
+      return;
+    }
+    this._onlineRoom = code;
+    this.showOnlineWait('guest', code);
+    net.onMessage = (msg) => this._netOnMessage(msg);
+    // представляемся хосту: колода + свои карты
+    net.send({ t: 'hello', deck: this.deck.slice(0, 8), cards: this.customCards });
+  }
+
+  showOnlineWait(role, code) {
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🌐 Онлайн-бой</div>
+            <div class="top-sub">${role === 'host' ? 'Ожидание соперника' : 'Подключение к комнате'}</div>
+          </div>
+        </div>
+        <div class="screen-scroll" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px">
+          <div style="font-size:40px">📡</div>
+          <div class="muted">${role === 'host'
+            ? 'Сообщите код другу — бой начнётся, когда он подключится'
+            : 'Ждём, пока хост начнёт бой…'}</div>
+          <div class="friend-code" style="font-size:26px">${escapeHtml(code)}</div>
+          ${role === 'host' ? '<button class="btn btn-blue" id="copy-room">📋 Копировать код</button>' : ''}
+          <button class="btn btn-ghost" id="cancel-wait">Отмена</button>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this._netCancelWait();
+    this.root.querySelector('#cancel-wait').onclick = () => this._netCancelWait();
+    const cp = this.root.querySelector('#copy-room');
+    if (cp) cp.onclick = async () => {
+      const ok = await copyText(code);
+      this.toast(ok ? 'Код скопирован' : 'Скопируйте код вручную');
+    };
+  }
+
+  _netCancelWait() {
+    try { this.net && this.net.close(); } catch { /* ignore */ }
+    this.net = null;
+    this._onlineRoom = null;
+    this._onlineWaiting = false;
+    this.showBattleMenu();
+  }
+
+  _netOnMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'hello') {
+      // гость представился → стартуем бой как хост
+      const deck = sanitizeDeck(msg.deck).slice(0, 8);
+      const guestCards = sanitizeCards(msg.cards || []);
+      if (deck.length < 4) {
+        this.toast('У соперника некорректная колода');
+        this._netCancelWait();
+        return;
+      }
+      this.customCards = [...this.customCards.filter((c) => !guestCards.some((g) => g.id === c.id)), ...guestCards];
+      this.cards();
+      this._onlineGuestDeck = deck;
+      this.net.send({ t: 'start', hostDeck: this.deck.slice(0, 8), cards: this.customCards });
+      this.startBattle('online-host');
+      return;
+    }
+    if (msg.t === 'start') {
+      // хост начал бой → мы гость
+      const hostCards = sanitizeCards(msg.cards || []);
+      this.customCards = [...this.customCards.filter((c) => !hostCards.some((g) => g.id === c.id)), ...hostCards];
+      this.cards();
+      const cardsById = new Map(this.cards().map((c) => [c.id, c]));
+      this.remoteBattle = new RemoteBattle({
+        cardsById,
+        sendIntent: (m) => this.net && this.net.send(m)
+      });
+      this._onlineHostDeck = sanitizeDeck(msg.hostDeck).slice(0, 8);
+      this.startBattle('online-guest');
+      return;
+    }
+    if (msg.t === 'snap') {
+      if (this.remoteBattle) this.remoteBattle.applySnapshot(msg);
+      return;
+    }
+    if (msg.t === 'intent') {
+      this._remoteIntents = this._remoteIntents || [];
+      this._remoteIntents.push(msg);
+      return;
+    }
+    if (msg.t === 'bye') {
+      this.toast('Соперник вышел из боя');
+    }
   }
 
   // ————— коллекция —————
@@ -1444,11 +1669,14 @@ export class App {
   // ————— бой —————
 
   startBattle(mode = 'normal', friend = null) {
-    if (this.deck.length < 4) {
+    if (this.deck.length < 4 && mode !== 'online-guest') {
       this.toast('В колоде должно быть минимум 4 карты');
       return;
     }
     this.battleMode = mode;
+    const online = mode === 'online-host' || mode === 'online-guest';
+    this._netKeepForBattle = online; // setScreen ниже не должен закрыть соединение
+    this._onlineWaiting = false;
     if (mode === 'normal') {
       const bad = this.deckIssues();
       if (bad.length) {
@@ -1459,7 +1687,11 @@ export class App {
     }
     const all = this.cards().filter((c) => !c.hidden);
     let enemyDeck;
-    if (friend && Array.isArray(friend.deck) && friend.deck.length >= 4) {
+    if (mode === 'online-host') {
+      enemyDeck = this._onlineGuestDeck || [];
+    } else if (mode === 'online-guest') {
+      enemyDeck = this._onlineHostDeck || [];
+    } else if (friend && Array.isArray(friend.deck) && friend.deck.length >= 4) {
       enemyDeck = friend.deck.slice(0, 8);
     } else {
       const enemyPool = all.map((c) => c.id).filter((id) => !this.deck.includes(id));
@@ -1499,12 +1731,23 @@ export class App {
     `);
 
     // бой создаётся ПОСЛЕ setScreen: иначе _stopBattle внутри setScreen его обнулит
-    this.battle = new Battle({
-      playerDeck: this.deck.slice(),
-      enemyDeck,
-      cardsById
-    });
-    this.ai = new BattleAI(this.battle, 'ai');
+    if (mode === 'online-guest') {
+      this.battle = this.remoteBattle;
+      this.ai = { update() {} };
+      this._remoteIntents = [];
+    } else {
+      this.battle = new Battle({
+        playerDeck: this.deck.slice(),
+        enemyDeck,
+        cardsById
+      });
+      // онлайн: командой соперника управляет живой игрок, а не ИИ
+      this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai');
+      if (mode === 'online-host') {
+        this._remoteIntents = [];
+        this._lastSnapAt = 0;
+      }
+    }
 
     const canvasHost = this.root.querySelector('#b-canvas');
     requestAnimationFrame(() => {
@@ -1737,6 +1980,10 @@ export class App {
         this.ai.update(dt);
       }
       const events = this.battle.drainEvents();
+      if (this.battleMode === 'online-host') {
+        this._hostApplyIntents();
+        this._hostMaybeSnapshot(events, now);
+      }
       if (this.battleView) {
         try {
           this.battleView.update(dt, events);
@@ -1788,20 +2035,39 @@ export class App {
     this.battleRaf = requestAnimationFrame(step);
   }
 
+  // онлайн-хост: применяем высадки соперника (он играет за 'ai')
+  _hostApplyIntents() {
+    const q = this._remoteIntents || [];
+    this._remoteIntents = [];
+    const cardsById = new Map(this.cards().map((c) => [c.id, c]));
+    for (const m of q) applyIntentToBattle(this.battle, m, cardsById);
+  }
+
+  // онлайн-хост: компактное состояние для гостя (раз в ~120 мс)
+  _hostMaybeSnapshot(events, now) {
+    if (!this.net) return;
+    if (now - (this._lastSnapAt || 0) < 120) return;
+    this._lastSnapAt = now;
+    try {
+      this.net.send(buildHostSnapshot(this.battle, events));
+    } catch { /* соединение мигнуло */ }
+  }
+
   _showResult() {
     if (this._resultShown) return;
     this._resultShown = true;
     const b = this.battle;
     const res = b.result || { winner: 'draw' };
     const stats = storage.addBattleResult(res.winner === 'player');
-    const u = accounts.addBattle(res.winner === 'player', this.battleMode !== 'friendly', res.winner === 'draw');
+    const ranked = this.battleMode === 'normal';
+    const u = accounts.addBattle(res.winner === 'player', ranked, res.winner === 'draw');
     this.sfx.play(res.winner === 'player' ? 'win' : res.winner === 'draw' ? 'ui' : 'lose');
 
     const title = res.winner === 'player' ? 'Победа!' : res.winner === 'draw' ? 'Ничья' : 'Поражение';
     const icon = res.winner === 'player' ? '🏆' : res.winner === 'draw' ? '🤝' : '💀';
-    const trophyLine = u && this.battleMode !== 'friendly' && res.winner !== 'draw'
+    const trophyLine = u && ranked && res.winner !== 'draw'
       ? `<br>Трофеи: <b>🏆 ${u.trophies}</b> (${res.winner === 'player' ? '+30' : '−15'})`
-      : (this.battleMode === 'friendly' ? '<br><span class="muted">Дружеский бой — трофеи не меняются</span>' : '');
+      : (ranked ? '' : '<br><span class="muted">Трофеи не меняются</span>');
     const ov = document.createElement('div');
     ov.className = 'overlay';
     ov.innerHTML = `
@@ -1817,8 +2083,13 @@ export class App {
       if (!btn) return;
       ov.remove();
       this._resultShown = false;
-      if (btn.dataset.a === 'again') this.startBattle(this.battleMode || 'normal');
-      else this.showMenu();
+      if (btn.dataset.a === 'again' && !(this.battleMode || '').startsWith('online')) {
+        this.startBattle(this.battleMode || 'normal');
+      } else if (btn.dataset.a === 'again') {
+        this.showBattleMenu(); // онлайн: комната одноразовая
+      } else {
+        this.showMenu();
+      }
     });
     document.body.appendChild(ov);
   }
@@ -1846,6 +2117,13 @@ export class App {
     if (this.battleRaf) cancelAnimationFrame(this.battleRaf);
     this.battleRaf = 0;
     this._unbindHandDrag();
+    // сетевое соединение закрываем, кроме онлайн-ожидания и перехода в онлайн-бой
+    if (this.net && !(this._onlineWaiting || this._netKeepForBattle)) {
+      try { this.net.send({ t: 'bye' }); } catch { /* ignore */ }
+      try { this.net.close(); } catch { /* ignore */ }
+      this.net = null;
+    }
+    this._netKeepForBattle = false;
     if (this.battleView) {
       this.battleView.dispose();
       this.battleView = null;

@@ -394,6 +394,14 @@ step('UI: экран друзей открывается', () => {
   if (!$('#my-code') && !$('#go-auth')) throw new Error('экран друзей пуст');
 });
 
+step('UI: онлайн-секция в меню боя', () => {
+  app.showMenu();
+  click($('#m-battle'));
+  if (!$('#b-online-create')) throw new Error('нет кнопки создания комнаты');
+  if (!$('#b-online-join') || !$('#net-code')) throw new Error('нет входа по коду');
+  if (!$('#net-url-label')) throw new Error('нет метки сервера');
+});
+
 console.log('— итог —');
 if (errors.length) {
   console.error('ОШИБКИ (' + errors.length + '):');
