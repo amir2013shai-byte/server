@@ -6,7 +6,7 @@ export const ARENA = {
   halfH: 16,
   riverY: 1.2,
   bridgeX: 5.2,
-  bridgeHalfW: 1.3
+  bridgeHalfW: 1.6
 };
 
 export const MATCH_TIME = 180;      // секунд обычного времени
@@ -681,14 +681,19 @@ export class Battle {
         // мост, через который короче всего путь к цели
         const score = (b) => Math.abs(u.x - b) + Math.abs(gx - b);
         const bx = score(-ARENA.bridgeX) <= score(ARENA.bridgeX) ? -ARENA.bridgeX : ARENA.bridgeX;
+        // лёгкая «полоса» на мосту, чтобы колонна не сбивалась в одну точку
+        const n = parseInt(String(u.id).replace(/\D/g, ''), 10) || 0;
+        const laneOff = ((n % 3) - 1) * 0.55;
         if (inRiver) {
           // на мосту/у реки — идти к выходу моста на сторону цели
-          gx = bx;
+          gx = bx + laneOff;
           gy = ARENA.riverY * goalSide * 1.35;
         } else {
-          // на берегу, цель через реку — идти к входу моста на своей стороне
-          gx = bx;
-          gy = ARENA.riverY * unitSide * 1.35;
+          // на берегу, цель через реку — идти к входу моста.
+          // Waypoint СТРОГО ВНУТРИ полосы реки (0.9): точка на самом берегу (1.35)
+          // создавала мёртвую зону — юнит замирал в ней навсегда.
+          gx = bx + laneOff;
+          gy = ARENA.riverY * unitSide * 0.9;
         }
       }
     }

@@ -148,6 +148,34 @@ const bird = b6._makeUnit(getCard('minions'), 'player', 0, 0, {});
 b6._constrainToLand(bird);
 check('летающий юнит может быть над водой', bird.y === 0);
 
+// ——— очередь через мост не застревает ———
+const b7 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const queue = [];
+for (let i = 0; i < 7; i++) {
+  const u = b7.deploy('knight', 5.2 + (i % 2) * 0.7, -6 - i * 1.5, 'player', { free: true });
+  if (u) queue.push(u);
+}
+const crossed = new Set();
+for (let t = 0; t < 45; t += 0.05) {
+  b7.update(0.05);
+  for (const u of queue) {
+    if (u.y > ARENA.riverY + 0.3) crossed.add(u.id);
+  }
+}
+check('колонна из 7 юнитов проходит мост без застревания', crossed.size === queue.length);
+
+// ——— встречный поток входит на мост с обеих сторон ———
+const b8 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const s = b8.deploy('knight', 5.6, -6, 'player', { free: true });
+const n = b8.deploy('knight', 4.8, 6, 'ai', { free: true });
+let sOn = false, nOn = false;
+for (let t = 0; t < 20; t += 0.05) {
+  b8.update(0.05);
+  if (s && s.alive && Math.abs(s.y) < ARENA.riverY + 1.2) sOn = true;
+  if (n && n.alive && Math.abs(n.y) < ARENA.riverY + 1.2) nOn = true;
+}
+check('юниты с обеих сторон заходят на мост', sOn && nOn);
+
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);
   process.exit(1);
