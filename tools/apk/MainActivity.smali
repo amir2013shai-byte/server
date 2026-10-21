@@ -40,6 +40,11 @@
     invoke-direct {v0, p0}, Landroid/webkit/WebView;-><init>(Landroid/content/Context;)V
     iput-object v0, p0, Lcom/battlecards/royale/MainActivity;->webView:Landroid/webkit/WebView;
 
+    # WebChromeClient — без него prompt/confirm/alert в WebView не работают
+    new-instance v3, Landroid/webkit/WebChromeClient;
+    invoke-direct {v3}, Landroid/webkit/WebChromeClient;-><init>()V
+    invoke-virtual {v0, v3}, Landroid/webkit/WebView;->setWebChromeClient(Landroid/webkit/WebChromeClient;)V
+
     # --- настройки WebView ---
     invoke-virtual {v0}, Landroid/webkit/WebView;->getSettings()Landroid/webkit/WebSettings;
     move-result-object v1

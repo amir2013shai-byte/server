@@ -137,7 +137,116 @@ def build_dex(java, jars):
     print(f"    DEX {len(data)} байт")
     return data
 
-# ---------------------------------------------------------------- бинарный AXML
+# ---------------------------------------------------------------- AXML / ресурсы (aapt2)
+
+PLAIN_MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="{package}"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
+    <application
+        android:label="{label}"
+        android:icon="@mipmap/ic_launcher"
+        android:hardwareAccelerated="true">
+        <activity
+            android:name="{activity}"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+"""
+
+
+def ensure_aapt2():
+    """aapt2 из apktool-lib (npm @specs-feup/alpakka) + android.jar (GitHub)."""
+    aapt2 = CACHE / "aapt2"
+    if not aapt2.exists():
+        jar = CACHE / "apktool-lib-2.9.3.jar"
+        if not jar.exists():
+            return None, None
+        import zipfile, stat
+        with zipfile.ZipFile(jar) as z:
+            aapt2.write_bytes(z.read("prebuilt/linux/aapt2_64"))
+        aapt2.chmod(aapt2.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    android_jar = CACHE / "android-25" / "android.jar"
+    if not android_jar.exists():
+        print("  ⤓ android.jar (Sable/android-platforms)")
+        import shutil as sh
+        repo = CACHE / "android-platforms"
+        if not (repo / ".git").exists():
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+                 "https://github.com/Sable/android-platforms.git", str(repo)],
+                check=True, capture_output=True,
+            )
+        subprocess.run(
+            ["git", "-C", str(repo), "sparse-checkout", "set", "android-25"],
+            check=True, capture_output=True,
+        )
+        android_jar.parent.mkdir(parents=True, exist_ok=True)
+        sh.copy(repo / "android-25" / "android.jar", android_jar)
+    return str(aapt2), str(android_jar)
+
+
+def build_resources_axml(game_html):
+    """
+    Полноценные манифест + resources.arsc + иконка через aapt2.
+    Возвращает dict {имя_в_apk: bytes} или None, если aapt2 недоступен.
+    """
+    aapt2, android_jar = ensure_aapt2()
+    if not aapt2:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / "AndroidManifest.xml").write_text(
+            PLAIN_MANIFEST.format(package=PACKAGE, label=LABEL, activity=ACTIVITY),
+            encoding="utf-8",
+        )
+        # ресурсы-иконки
+        res_src = TOOLS / "res"
+        flat_dir = td / "flat"
+        flat_dir.mkdir()
+        flats = []
+        for png in sorted(res_src.glob("mipmap-*/ic_launcher.png")):
+            r = subprocess.run(
+                [aapt2, "compile", "-o", str(flat_dir), str(png)],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                sys.exit(f"aapt2 compile:\n{r.stdout}\n{r.stderr}")
+            flats += list(flat_dir.glob("*.flat"))
+        # ассеты
+        assets = td / "assets"
+        assets.mkdir()
+        (assets / "index.html").write_bytes(game_html)
+        out_apk = td / "skeleton.apk"
+        cmd = [
+            aapt2, "link", "-o", str(out_apk),
+            "-I", android_jar,
+            "--manifest", str(td / "AndroidManifest.xml"),
+            "--min-sdk-version", "24", "--target-sdk-version", "28",
+            "--version-code", "1", "--version-name", "1.0",
+            "-A", str(assets),
+            "--auto-add-overlay",
+        ]
+        for f in flats:
+            cmd += ["-R", str(f)]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(f"aapt2 link:\n{r.stdout}\n{r.stderr}")
+        import zipfile as zf
+        with zf.ZipFile(out_apk) as z:
+            return {name: z.read(name) for name in z.namelist()}
+
+
+# ---------------------------------------------------------------- бинарный AXML (запасной путь)
 
 class AxmlBuilder:
     """Минимальный генератор Android binary XML (AXML)."""
@@ -489,27 +598,43 @@ def main():
     print(f"• java: {java}")
     jars = ensure_tool_jars()
     dex = build_dex(java, jars)
-    manifest = build_manifest_axml()
-    print(f"• AndroidManifest.xml (AXML): {len(manifest)} байт")
     game = build_game_html()
     print(f"• assets/index.html: {len(game) // 1024} КБ")
 
-    sign_entries = [
-        ("AndroidManifest.xml", manifest),
-        ("classes.dex", dex),
-        ("assets/index.html", game),
-    ]
+    print("• Ресурсы и манифест (aapt2)")
+    res_entries = build_resources_axml(game)
+    if res_entries is not None and "AndroidManifest.xml" in res_entries and "resources.arsc" in res_entries:
+        print(f"  aapt2: манифест + resources.arsc + иконка ({len(res_entries)} записей)")
+        manifest = res_entries["AndroidManifest.xml"]
+    else:
+        print("  aapt2 недоступен — запасной AXML-генератор (без иконки)")
+        manifest = build_manifest_axml()
+        res_entries = {"assets/index.html": game}
+        print(f"• AndroidManifest.xml (AXML): {len(manifest)} байт")
+
+    sign_entries = [("AndroidManifest.xml", manifest)]
+    for name, data in res_entries.items():
+        if name == "AndroidManifest.xml":
+            continue
+        sign_entries.append((name, data))
+    sign_entries.append(("classes.dex", dex))
     mf, sf, rsa = sign_v1(sign_entries)
     print(f"• Подпись v1: MANIFEST {len(mf)} / SF {len(sf)} / RSA {len(rsa)} байт")
 
-    entries = [
-        ("AndroidManifest.xml", manifest, 0, True),
-        ("classes.dex", dex, 0, True),
-        ("assets/index.html", game, 8, False),
-        ("META-INF/MANIFEST.MF", mf, 8, False),
-        ("META-INF/CERT.SF", sf, 8, False),
-        ("META-INF/CERT.RSA", rsa, 8, False),
-    ]
+    # финальный ZIP: ресурсы aapt2 + dex + подпись; STORED c выравниванием
+    stored = {"AndroidManifest.xml", "resources.arsc", "classes.dex"}
+    entries = []
+    seen = set()
+    for name, data in res_entries.items():
+        entries.append((name, data, 0 if name in stored else 8, name in stored))
+        seen.add(name)
+    if "classes.dex" not in seen:
+        entries.append(("classes.dex", dex, 0, True))
+    entries.append(("META-INF/MANIFEST.MF", mf, 8, False))
+    entries.append(("META-INF/CERT.SF", sf, 8, False))
+    entries.append(("META-INF/CERT.RSA", rsa, 8, False))
+    # стабильный порядок: сначала манифест и ресурсы, потом dex, потом подпись
+    entries.sort(key=lambda e: ({"AndroidManifest.xml": 0, "resources.arsc": 1, "classes.dex": 2}.get(e[0], 3)))
     apk = build_zip(entries)
 
     OUT_DIR.mkdir(exist_ok=True)

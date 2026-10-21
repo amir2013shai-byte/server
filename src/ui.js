@@ -74,8 +74,10 @@ export class App {
   constructor(root) {
     this.root = root;
     this.sfx = new Sfx();
-    this.customCards = storage.getCustomCards();
-    this.deck = storage.getDeck() || this._starterDeck();
+    this.customCards = sanitizeCards(storage.getCustomCards());
+    storage.setCustomCards(this.customCards);
+    this.deck = sanitizeDeck(storage.getDeck());
+    storage.setDeck(this.deck);
     this.settings = storage.getSettings();
     this.sfx.enabled = this.settings.sound !== false;
     this.battle = null;
@@ -543,7 +545,7 @@ export class App {
             <div class="row" style="margin:6px 0 30px">
               <button class="btn btn-primary btn-block btn-big" id="save2">💾 Сохранить карту</button>
             </div>
-            ${isCustom && source && source.custom ? `<button class="btn btn-chip danger" id="delete">Удалить карту</button>` : ''}
+            ${this.customCards.some((c) => c.id === draft.id) ? `<button class="btn btn-chip danger" id="delete">Удалить карту</button>` : ''}
           </div>
         </div>
       `);
@@ -772,12 +774,6 @@ export class App {
     while (enemyDeck.length < 8) enemyDeck.push(this.deck[enemyDeck.length % this.deck.length]);
 
     const cardsById = new Map(this.cards().map((c) => [c.id, c]));
-    this.battle = new Battle({
-      playerDeck: this.deck.slice(),
-      enemyDeck,
-      cardsById
-    });
-    this.ai = new BattleAI(this.battle, 'ai');
 
     this.setScreen(`
       <div class="battle-screen">
@@ -805,13 +801,32 @@ export class App {
       </div>
     `);
 
+    // бой создаётся ПОСЛЕ setScreen: иначе _stopBattle внутри setScreen его обнулит
+    this.battle = new Battle({
+      playerDeck: this.deck.slice(),
+      enemyDeck,
+      cardsById
+    });
+    this.ai = new BattleAI(this.battle, 'ai');
+
     const canvasHost = this.root.querySelector('#b-canvas');
     requestAnimationFrame(() => {
-      this.battleView = new BattleView(canvasHost, this.battle, {
-        team: 'player',
-        onDeployRequest: (cardId, x, y) => this._tryDeploy(cardId, x, y)
-      });
-      this.battleView.resize();
+      try {
+        this.battleView = new BattleView(canvasHost, this.battle, {
+          team: 'player',
+          onDeployRequest: (cardId, x, y) => this._tryDeploy(cardId, x, y)
+        });
+        this.battleView.resize();
+      } catch (e) {
+        console.error('3D недоступно:', e);
+        canvasHost.innerHTML = `
+          <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">
+            <div style="font-size:44px">🎮</div>
+            <div style="font-size:16px;font-weight:700">3D-режим недоступен</div>
+            <div class="muted">На этом устройстве WebView не поддерживает WebGL.
+            Бой всё равно идёт — выбирайте карты внизу.</div>
+          </div>`;
+      }
     });
 
     this.root.querySelector('#b-pause').onclick = () => this._pauseMenu();
@@ -834,7 +849,7 @@ export class App {
     const elixir = this.battle.teams.player.elixir;
     handEl.innerHTML = hand.map((id) => {
       const c = this.cards().find((x) => x.id === id);
-      if (!c) return '';
+      if (!c) return '<div class="deck-slot">?</div>';
       const afford = elixir >= c.cost;
       return `
         <div class="hand-card ${afford ? '' : 'unaffordable'} ${this.selectedCard === id ? 'active' : ''}" data-hand="${id}">
@@ -896,7 +911,15 @@ export class App {
         this.ai.update(dt);
       }
       const events = this.battle.drainEvents();
-      if (this.battleView) this.battleView.update(dt, events);
+      if (this.battleView) {
+        try {
+          this.battleView.update(dt, events);
+        } catch (e) {
+          console.error('3D-ошибка, отключаю вид:', e);
+          try { this.battleView.dispose(); } catch { /* ignore */ }
+          this.battleView = null;
+        }
+      }
 
       // HUD
       const b = this.battle;
@@ -1006,6 +1029,58 @@ export class App {
 }
 
 // ————— мелкие помощники —————
+
+// Очистка пользовательского хранилища от мусора (битые карты/колоды от старых сессий).
+function sanitizeCards(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c !== 'object') continue;
+    if (!c.id || typeof c.id !== 'string' || !c.name) continue;
+    const card = {
+      id: c.id,
+      name: String(c.name).slice(0, 40),
+      desc: typeof c.desc === 'string' ? c.desc.slice(0, 300) : '',
+      rarity: RARITY[c.rarity] ? c.rarity : 'common',
+      type: TYPE_LABELS[c.type] ? c.type : 'troop',
+      cost: clampNum(c.cost, 0, 10, 3),
+      count: clampNum(c.count, 1, 12, 1),
+      hp: clampNum(c.hp, 1, 99999, 500),
+      damage: clampNum(c.damage, 0, 99999, 100),
+      hitSpeed: clampNum(c.hitSpeed, 0.2, 20, 1),
+      range: clampNum(c.range, 0, 20, 1),
+      speed: clampNum(c.speed, 0, 5, 1),
+      splash: clampNum(c.splash, 0, 8, 0),
+      sight: 5.5,
+      targets: c.targets === 'both' ? 'both' : 'ground',
+      flying: !!c.flying,
+      buildingOnly: !!c.buildingOnly,
+      hidden: false,
+      custom: true,
+      abilities: Array.isArray(c.abilities) ? c.abilities.filter((a) => a && ABILITY_DEFS[a.type]) : [],
+      spell: c.spell && typeof c.spell === 'object' ? c.spell : null,
+      building: c.building && typeof c.building === 'object' ? c.building : null,
+      model: c.model && Array.isArray(c.model.parts) && c.model.parts.length
+        ? c.model
+        : { parts: [{ shape: 'box', pos: [0, 0.85, 0], rot: [0, 0, 0], scale: [0.62, 0.62, 0.36], color: '#3b6fd4', emissive: '#000000' }] }
+    };
+    out.push(card);
+  }
+  return out;
+}
+
+function sanitizeDeck(deck) {
+  const valid = new Set([...ALL_CARDS.map((c) => c.id), ...storage.getCustomCards().map((c) => c && c.id)]);
+  let list = Array.isArray(deck) ? deck.filter((id) => typeof id === 'string' && valid.has(id)) : [];
+  list = [...new Set(list)].slice(0, 8);
+  if (list.length < 4) {
+    for (const id of ['knight', 'archers', 'goblins', 'fireball', 'musketeer', 'giant', 'arrows', 'cannon']) {
+      if (list.length >= 8) break;
+      if (!list.includes(id)) list.push(id);
+    }
+  }
+  return list;
+}
 
 function clampNum(v, min, max, def) {
   const n = parseFloat(v);
