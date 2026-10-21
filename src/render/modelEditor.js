@@ -1,13 +1,18 @@
-// Встроенный 3D-редактор моделей: примитивы, трансформ, цвета, шаблоны, орбитальная камера.
+// Встроенный 3D-редактор моделей: примитивы, трансформ, цвета, текстуры, анимация, шаблоны, коды.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { buildModel } from './modelBuilder.js';
+import { buildModel, animateModel } from './modelBuilder.js';
+import { encodeModel, decodeModel, copyText } from '../share.js';
 import { SHAPES, P, humanoid, smallHumanoid, skeleton, dragon, spirit, golem, winged, building, turret, beast } from '../data/models.js';
 
 const SHAPE_LABELS = {
   box: 'Куб', sphere: 'Сфера', cylinder: 'Цилиндр',
-  cone: 'Конус', torus: 'Тор', capsule: 'Капсула'
+  cone: 'Конус', torus: 'Тор', capsule: 'Капсула',
+  ring: 'Кольцо', halfsphere: 'Полусфера', wedge: 'Призма'
 };
+
+const TEX_LABELS = { none: 'Нет', stripes: 'Полосы', dots: 'Точки', checker: 'Шахматы', metal: 'Металл' };
+const ANIM_LABELS = { none: 'Нет', spin: 'Вращение', bob: 'Покачивание', orbit: 'Орбита' };
 
 const TEMPLATES = {
   humanoid: { label: 'Гуманоид', make: () => humanoid() },
@@ -19,7 +24,52 @@ const TEMPLATES = {
   winged: { label: 'Крылатый', make: () => winged() },
   beast: { label: 'Зверь', make: () => beast() },
   building: { label: 'Здание', make: () => building() },
-  turret: { label: 'Турель', make: () => turret() }
+  turret: { label: 'Турель', make: () => turret() },
+  spider: {
+    label: 'Паук', make: () => ({
+      parts: [
+        { shape: 'halfsphere', pos: [0, 0.55, 0], rot: [0, 0, 0], scale: [1.1, 0.8, 1.3], color: '#4a2c6e', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'sphere', pos: [0, 0.75, -0.85], rot: [0, 0, 0], scale: [0.55, 0.55, 0.55], color: '#2c1a44', emissive: '#c26bf2', tex: 'none', opacity: 1, anim: 'none' },
+        ...[-1, 1].flatMap((s) => [0, 1, 2, 3].map((i) => ({
+          shape: 'cylinder', pos: [s * (0.75 + i * 0.12), 0.42, -0.5 + i * 0.36],
+          rot: [0.35, 0, s * 1.15], scale: [0.09, 1.15, 0.09], color: '#3b2158', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none'
+        })))
+      ]
+    })
+  },
+  ship: {
+    label: 'Корабль', make: () => ({
+      parts: [
+        { shape: 'wedge', pos: [0, 0.5, 0], rot: [0, Math.PI / 6, 0], scale: [1.6, 0.6, 3.2], color: '#6e4a2c', emissive: '#000000', tex: 'metal', opacity: 1, anim: 'bob' },
+        { shape: 'box', pos: [0, 1.05, -0.3], rot: [0, 0, 0], scale: [0.9, 0.5, 1.1], color: '#8a6238', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'cylinder', pos: [0, 1.9, -0.3], rot: [0, 0, 0], scale: [0.09, 1.6, 0.09], color: '#4a3018', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'ring', pos: [0, 2.2, -0.28], rot: [0, 0, 0], scale: [1.15, 1.15, 1], color: '#e8d8b0', emissive: '#221800', tex: 'stripes', opacity: 1, anim: 'none' }
+      ]
+    })
+  },
+  robot: {
+    label: 'Робот', make: () => ({
+      parts: [
+        { shape: 'box', pos: [0, 1.15, 0], rot: [0, 0, 0], scale: [1, 1.15, 0.62], color: '#7a8494', emissive: '#000000', tex: 'metal', opacity: 1, anim: 'none' },
+        { shape: 'box', pos: [0, 2.05, 0], rot: [0, 0, 0], scale: [0.62, 0.55, 0.55], color: '#9aa3b5', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'sphere', pos: [0, 2.08, 0.3], rot: [0, 0, 0], scale: [0.2, 0.12, 0.1], color: '#49d9ff', emissive: '#49d9ff', tex: 'none', opacity: 1, anim: 'spin' },
+        { shape: 'cylinder', pos: [-0.72, 1.2, 0], rot: [0, 0, 0.18], scale: [0.17, 1.1, 0.17], color: '#5c6675', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'cylinder', pos: [0.72, 1.2, 0], rot: [0, 0, -0.18], scale: [0.17, 1.1, 0.17], color: '#5c6675', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'box', pos: [-0.26, 0.38, 0], rot: [0, 0, 0], scale: [0.28, 0.8, 0.3], color: '#4d5663', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' },
+        { shape: 'box', pos: [0.26, 0.38, 0], rot: [0, 0, 0], scale: [0.28, 0.8, 0.3], color: '#4d5663', emissive: '#000000', tex: 'none', opacity: 1, anim: 'none' }
+      ]
+    })
+  },
+  crystal: {
+    label: 'Кристалл', make: () => ({
+      parts: [
+        { shape: 'wedge', pos: [0, 1.25, 0], rot: [0, 0, 0], scale: [0.75, 1.7, 0.75], color: '#49d9ff', emissive: '#1a6a8a', tex: 'none', opacity: 0.75, anim: 'spin' },
+        { shape: 'wedge', pos: [-0.55, 0.75, 0.2], rot: [0, 0.6, 0], scale: [0.38, 0.95, 0.38], color: '#7de0ff', emissive: '#1a6a8a', tex: 'none', opacity: 0.7, anim: 'spin' },
+        { shape: 'wedge', pos: [0.55, 0.65, -0.2], rot: [0, -0.5, 0], scale: [0.32, 0.8, 0.32], color: '#a8ecff', emissive: '#1a6a8a', tex: 'none', opacity: 0.7, anim: 'spin' },
+        { shape: 'ring', pos: [0, 0.08, 0], rot: [-Math.PI / 2, 0, 0], scale: [1.7, 1.7, 1], color: '#49d9ff', emissive: '#49d9ff', tex: 'none', opacity: 0.5, anim: 'none' }
+      ]
+    })
+  }
 };
 
 export class ModelEditor {
@@ -42,6 +92,11 @@ export class ModelEditor {
     return JSON.parse(JSON.stringify(m));
   }
 
+  _toast(msg) {
+    if (this.opts && typeof this.opts.toast === 'function') this.opts.toast(msg);
+    else console.log(msg);
+  }
+
   getModel() {
     return this._clone(this.model);
   }
@@ -61,6 +116,7 @@ export class ModelEditor {
         <div class="me-toolbar">
           <button class="btn btn-ghost me-btn" data-act="reset-cam">Вид</button>
           <button class="btn btn-ghost me-btn" data-act="template">Шаблон…</button>
+          <button class="btn btn-ghost me-btn" data-act="code">Код…</button>
           <button class="btn btn-ghost me-btn" data-act="clear">Очистить</button>
           <span class="me-spacer"></span>
           <button class="btn btn-primary me-btn" data-act="save">Сохранить</button>
@@ -92,6 +148,7 @@ export class ModelEditor {
       switch (act.dataset.act) {
         case 'reset-cam': this.resetCamera(); break;
         case 'template': this._pickTemplate(); break;
+        case 'code': this._codeDialog(); break;
         case 'clear':
           if ((window.confirm || confirm)('Удалить все части модели?')) {
             this.model.parts = [];
@@ -105,6 +162,46 @@ export class ModelEditor {
         default: break;
       }
     });
+  }
+
+  // экспорт/импорт модели по коду BM1.…
+  _codeDialog() {
+    const code = encodeModel(this.model) || '';
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.style.zIndex = '50';
+    ov.innerHTML = `
+      <div class="modal" style="text-align:left">
+        <h2>Код модели</h2>
+        <p class="muted">Скопируйте код, чтобы поделиться моделью, или вставьте чужой код и нажмите «Импорт».</p>
+        <textarea class="input" style="width:100%;height:100px;font-size:11px;word-break:break-all">${code}</textarea>
+        <div class="row mt12" style="flex-wrap:wrap">
+          <button class="btn btn-primary" data-a="copy">📋 Копировать</button>
+          <button class="btn btn-blue" data-a="import">📥 Импорт</button>
+          <button class="btn btn-ghost" data-a="close">Закрыть</button>
+        </div>
+      </div>`;
+    ov.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('[data-a]');
+      if (!b) return;
+      const ta = ov.querySelector('textarea');
+      if (b.dataset.a === 'close') return ov.remove();
+      if (b.dataset.a === 'copy') {
+        const ok = await copyText(ta.value);
+        this._toast(ok ? 'Код модели скопирован' : 'Скопируйте вручную');
+      }
+      if (b.dataset.a === 'import') {
+        const m = decodeModel(ta.value);
+        if (!m) {
+          this._toast('Код модели не распознан');
+          return;
+        }
+        this.setModel(m);
+        ov.remove();
+        this._toast('Модель импортирована');
+      }
+    });
+    (document.querySelector('.model-editor') || document.body).appendChild(ov);
   }
 
   _pickTemplate() {
@@ -181,6 +278,9 @@ export class ModelEditor {
       if (!this._animating || !this.renderer) return;
       requestAnimationFrame(loop);
       this.controls.update();
+      // анимация частей модели (spin/bob/orbit)
+      const inner = this.modelGroup && this.modelGroup.children[0];
+      if (inner) animateModel(inner, performance.now() / 1000);
       this.renderer.render(this.scene, this.camera);
     };
     loop();
@@ -267,11 +367,42 @@ export class ModelEditor {
       ${axisRow('Позиция', 'pos', p.pos, -3, 3, 0.05)}
       ${axisRow('Поворот°', 'rot', [deg(p.rot[0]), deg(p.rot[1]), deg(p.rot[2])], -180, 180, 5, true)}
       ${axisRow('Размер', 'scale', p.scale, 0.05, 3, 0.05)}
+      <div class="me-prop-head" style="margin-top:8px">
+        <label class="me-color">Текстура
+          <select class="input me-tex">
+            ${Object.entries(TEX_LABELS).map(([k, l]) => `<option value="${k}" ${k === (p.tex || 'none') ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </label>
+        <label class="me-color">Анимация
+          <select class="input me-anim">
+            ${Object.entries(ANIM_LABELS).map(([k, l]) => `<option value="${k}" ${k === (p.anim || 'none') ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </label>
+        <label class="me-color">Прозрачность
+          <input type="range" data-op min="0.15" max="1" step="0.05" value="${p.opacity ?? 1}">
+        </label>
+      </div>
     `;
 
     const commit = () => {
       this._rebuildModel();
     };
+
+    const texSel = this.propsEl.querySelector('.me-tex');
+    if (texSel) texSel.addEventListener('change', () => {
+      p.tex = texSel.value;
+      commit();
+    });
+    const animSel = this.propsEl.querySelector('.me-anim');
+    if (animSel) animSel.addEventListener('change', () => {
+      p.anim = animSel.value;
+      commit();
+    });
+    const opInp = this.propsEl.querySelector('[data-op]');
+    if (opInp) opInp.addEventListener('input', () => {
+      p.opacity = parseFloat(opInp.value);
+      commit();
+    });
 
     this.propsEl.querySelectorAll('input[type=range]').forEach((inp) => {
       inp.addEventListener('input', () => {

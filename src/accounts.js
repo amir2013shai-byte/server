@@ -1,6 +1,7 @@
 // Аккаунты (локальные профили устройства), друзья, кланы, админ-баланс.
 // Всё хранится в localStorage: офлайн-игра без сервера, аккаунты — профили на телефоне.
 import { DEFAULT_BALANCE, mergeBalance } from './data/balance.js';
+import { emptyProgress, normalizeProgress, currentSeasonId, seasonReward } from './progress.js';
 
 const KEY = 'bc_accounts_v1';
 export const ADMIN_NAME = 'admin';
@@ -164,9 +165,13 @@ export const accounts = {
     return this._s().session || 'guest';
   },
 
-  saveActive(deck, customCards) {
+  saveActive(deck, customCards, progress) {
     const s = this._s();
-    const prof = { deck: deck ? deck.slice() : null, customCards: customCards || [] };
+    const prof = {
+      deck: deck ? deck.slice() : null,
+      customCards: customCards || [],
+      progress: progress ? normalizeProgress(progress) : emptyProgress()
+    };
     if (s.session) {
       const u = s.users[s.session];
       if (u) u.profile = prof;
@@ -180,18 +185,115 @@ export const accounts = {
     const s = this._s();
     if (s.session) {
       const u = s.users[s.session];
-      return u && u.profile ? u.profile : { deck: null, customCards: [] };
+      return u && u.profile ? u.profile : { deck: null, customCards: [], progress: emptyProgress() };
     }
-    return s.guest || { deck: null, customCards: [] };
+    return s.guest || { deck: null, customCards: [], progress: emptyProgress() };
+  },
+
+  // ——— прогресс (золото/уровни/сундуки) ———
+
+  getProgress() {
+    const p = this.activeProfile();
+    return normalizeProgress(p.progress);
+  },
+
+  saveProgress(progress) {
+    const s = this._s();
+    const p = normalizeProgress(progress);
+    if (s.session) {
+      const u = s.users[s.session];
+      if (u) {
+        u.profile = u.profile || { deck: null, customCards: [], progress: emptyProgress() };
+        u.profile.progress = p;
+      }
+    } else {
+      s.guest = s.guest || { deck: null, customCards: [], progress: emptyProgress() };
+      s.guest.progress = p;
+    }
+    this._flush();
+    return p;
   },
 
   // миграция: первый запуск — гостевой профиль = то, что уже лежит в storage
   ensureGuest(deck, customCards) {
     const s = this._s();
     if (!s.guest) {
-      s.guest = { deck: deck ? deck.slice() : null, customCards: customCards || [] };
+      s.guest = { deck: deck ? deck.slice() : null, customCards: customCards || [], progress: emptyProgress() };
       this._flush();
     }
+    // сезон: начислить награду и обнулить часть трофеев при смене месяца
+    this._checkSeason();
+    return this.getProgress();
+  },
+
+  // ——— сезоны ———
+
+  _checkSeason() {
+    const s = this._s();
+    const sid = currentSeasonId();
+    s.season = s.season || { id: sid };
+    if (s.season.id === sid) return;
+    // награды всем локальным аккаунтам по лиге + мягкий сброс трофеев
+    for (const u of Object.values(s.users)) {
+      const rew = seasonReward(u.trophies || 0);
+      u.profile = u.profile || { deck: null, customCards: [], progress: emptyProgress() };
+      u.profile.progress = normalizeProgress(u.profile.progress);
+      u.profile.progress.gold += rew.gold;
+      u.profile.progress.seasonClaimed = sid;
+      u.trophies = Math.floor((u.trophies || 0) * 0.7);
+    }
+    if (s.guest) {
+      s.guest.progress = normalizeProgress(s.guest.progress);
+      s.guest.progress.seasonClaimed = sid;
+    }
+    s.season = { id: sid };
+    s.clanWar = null; // новая клановая война
+    this._flush();
+  },
+
+  seasonInfo() {
+    const s = this._s();
+    return { id: (s.season && s.season.id) || currentSeasonId() };
+  },
+
+  // ——— клановая война и клановый сундук ———
+
+  clanWar() {
+    const s = this._s();
+    const sid = currentSeasonId();
+    if (!s.clanWar || s.clanWar.season !== sid) {
+      s.clanWar = {
+        season: sid,
+        rival: { name: 'Клан «Тени Арены»', score: 40 + Math.floor(Math.random() * 80) },
+        score: {}
+      };
+      this._flush();
+    }
+    return s.clanWar;
+  },
+
+  addClanActivity(win, crowns) {
+    const clan = this.myClan();
+    if (!clan) return null;
+    clan.chestCrowns = (clan.chestCrowns || 0) + Math.max(0, crowns || 0);
+    if (win) {
+      const war = this.clanWar();
+      war.score[clan.tag] = (war.score[clan.tag] || 0) + (2 + (crowns || 0));
+      // соперник тоже «играет»
+      war.rival.score += Math.random() < 0.55 ? 2 + Math.floor(Math.random() * 3) : 0;
+    }
+    this._flush();
+    return clan;
+  },
+
+  claimClanChest() {
+    const clan = this.myClan();
+    if (!clan) return { ok: false, error: 'Вы не в клане' };
+    if ((clan.chestCrowns || 0) < 20) return { ok: false, error: 'Сундук ещё не полон (нужно 20 корон)' };
+    clan.chestCrowns -= 20;
+    clan.log.push({ t: Date.now(), msg: 'Клановый сундук вскрыт!' });
+    this._flush();
+    return { ok: true, gold: 150 };
   },
 
   addBattle(win, ranked = true, draw = false) {

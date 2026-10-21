@@ -229,6 +229,7 @@ export function buildHostSnapshot(battle, events) {
     time: battle.time,
     finished: battle.finished,
     result: battle.result,
+    rules: battle.rules || null,
     crowns: { player: battle.crowns.player, ai: battle.crowns.ai },
     elixir: [battle.teams.player.elixir, battle.teams.ai.elixir],
     hands: [battle.teams.player.hand.slice(), battle.teams.ai.hand.slice()],
@@ -299,6 +300,7 @@ export class RemoteBattle {
     this._events = [];
     this._everGotSnapshot = false;
     this.lastSnapshotAt = 0;
+    this.rules = { matchTime: 180, doubleElixirAt: 120, suddenDeath: false };
   }
 
   card(id) {
@@ -310,6 +312,7 @@ export class RemoteBattle {
     this._everGotSnapshot = true;
     this.lastSnapshotAt = Date.now();
     this.time = s.time || 0;
+    if (s.rules) this.rules = s.rules;
     this.finished = !!s.finished;
     this.result = s.result
       ? { winner: swapTeam(s.result.winner), reason: s.result.reason }

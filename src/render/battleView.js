@@ -1,6 +1,6 @@
 // 3D-вид битвы: арена, башни, юниты, эффекты. Синхронизируется с движком каждый кадр.
 import * as THREE from 'three';
-import { buildModel, teamRing, healthBar, setHealthBar } from './modelBuilder.js';
+import { buildModel, teamRing, healthBar, setHealthBar, animateModel } from './modelBuilder.js';
 import { ARENA } from '../game/engine.js';
 
 const PLAYER_RING = '#4a90ff';
@@ -339,6 +339,7 @@ export class BattleView {
       const raged = b.time < u.rageUntil;
       ent.ring.material.color.set(frozen ? 0x9adcff : raged ? 0xc26bf2 : (u.team === 'player' ? PLAYER_RING : ENEMY_RING));
       ent.model.rotation.y = u.team === 'player' ? 0 : Math.PI;
+      animateModel(ent.model, performance.now() / 1000);
 
       const ratio = Math.max(0, u.hp / u.maxHp);
       setHealthBar(ent.bar, ratio, ratio > 0.5 ? 0x35d05a : ratio > 0.25 ? 0xe0c040 : 0xe05555);

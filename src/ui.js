@@ -4,6 +4,12 @@ import { ALL_CARDS, COLLECTION_IDS, RARITY, getCard, withCustom } from './data/c
 import { cardBalance, DEFAULT_BALANCE } from './data/balance.js';
 import { accounts } from './accounts.js';
 import { encodeCard, decodeCard, copyText } from './share.js';
+import {
+  LEVEL_MAX, levelMultiplier, upgradeCost, LEAGUES, leagueFor, nextLeague,
+  currentSeasonId, seasonDaysLeft, seasonReward,
+  normalizeProgress, cardLevel, scaleCard, rollChest, openChest
+} from './progress.js';
+import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -28,7 +34,13 @@ const ABILITY_DEFS = {
   deathDamage: { label: 'Урон при гибели', params: [['damage', 'Урон', 200], ['radius', 'Радиус', 1.8]] },
   healAura: { label: 'Аура лечения', params: [['hps', 'HP/сек', 150], ['radius', 'Радиус', 3]] },
   spawnTroops: { label: 'Призыв войск (здания)', params: [['cardId', 'ID карты', 'skeletons'], ['interval', 'Сек', 5], ['max', 'Макс. на поле', 2]] },
-  rageOnDeploy: { label: 'Ярость при высадке', params: [['duration', 'Сек', 6], ['radius', 'Радиус', 3], ['speedMul', 'Скорость ×', 1.3], ['attackMul', 'Атака ×', 1.3]] }
+  rageOnDeploy: { label: 'Ярость при высадке', params: [['duration', 'Сек', 6], ['radius', 'Радиус', 3], ['speedMul', 'Скорость ×', 1.3], ['attackMul', 'Атака ×', 1.3]] },
+  crit: { label: 'Критический удар', params: [['chance', 'Шанс (0..1)', 0.25], ['multiplier', 'Множитель урона', 2]] },
+  dodge: { label: 'Уклонение', params: [['chance', 'Шанс (0..1)', 0.3]] },
+  revive: { label: 'Возрождение (1 раз)', params: [['hpPercent', 'Доля HP', 0.5]] },
+  thorns: { label: 'Шипы (возврат урона)', params: [['percent', 'Доля урона', 0.3]] },
+  taunt: { label: 'Провокация', params: [['radius', 'Радиус', 3]] },
+  buffAura: { label: 'Аура усиления союзников', params: [['radius', 'Радиус', 3], ['damageMul', 'Урон ×', 1.15], ['speedMul', 'Скорость ×', 1.1]] }
 };
 
 const SPELL_EFFECTS = {
@@ -92,10 +104,26 @@ export class App {
     this.battleMode = 'normal';
     this.allCards = withCustom(this.customCards);
     this.balanceParams = accounts.getBalance();
-    accounts.ensureGuest(this.deck, this.customCards);
+    this.progress = accounts.ensureGuest(this.deck, this.customCards);
+    this.replays = this._loadReplays();
     this.showMenu();
     // импорт карты по ссылке #card=BC1...
     this._checkHashImport();
+  }
+
+  _loadReplays() {
+    try {
+      const p = this.progress || {};
+      return Array.isArray(p.replays) ? p.replays : [];
+    } catch {
+      return [];
+    }
+  }
+
+  _saveReplays() {
+    // реплеи храним в прогрессе (он сериализуется в профиль)
+    this.progress.replays = this.replays;
+    this._persist();
   }
 
   _starterDeck() {
@@ -113,7 +141,8 @@ export class App {
   _persist() {
     storage.setDeck(this.deck);
     storage.setCustomCards(this.customCards);
-    accounts.saveActive(this.deck, this.customCards);
+    this.progress = accounts.saveProgress(this.progress);
+    accounts.saveActive(this.deck, this.customCards, this.progress);
   }
 
   balanceOf(card) {
@@ -202,11 +231,15 @@ export class App {
             ${user
               ? `👤 <b>${escapeHtml(user.name)}</b> ${user.isAdmin ? '• <span style="color:#f0d890">админ</span>' : ''} • 🏆 ${user.trophies || 0}`
               : '👤 Гость — <b>войти в аккаунт</b>'}
+            • 💰 ${this.progress.gold}
             ${clan ? ` • 🛡 [${escapeHtml(clan.tag)}]` : ''}
           </button>
           <div class="menu-buttons">
             <button class="btn btn-primary btn-big" id="m-battle">⚔️ В бой!</button>
             <button class="btn btn-blue" id="m-deck">🃏 Моя колода (${this.deck.length}/8)</button>
+            <button class="btn btn-ghost" id="m-progress">💰 Прокачка и сундуки</button>
+            <button class="btn btn-ghost" id="m-rating">🏆 Рейтинг и сезоны</button>
+            <button class="btn btn-ghost" id="m-replays">🎬 Реплеи (${this.replays.length})</button>
             <button class="btn btn-ghost" id="m-cards">📚 Коллекция карт</button>
             <button class="btn btn-ghost" id="m-editor">🛠 Редактор карт</button>
             <button class="btn btn-ghost" id="m-friends">👥 Друзья (${accounts.friends().length})</button>
@@ -224,6 +257,9 @@ export class App {
     `);
     this.root.querySelector('#m-battle').onclick = () => { this.sfx.play('ui'); this.showBattleMenu(); };
     this.root.querySelector('#m-deck').onclick = () => { this.sfx.play('ui'); this.showDeck(); };
+    this.root.querySelector('#m-progress').onclick = () => { this.sfx.play('ui'); this.showProgress(); };
+    this.root.querySelector('#m-rating').onclick = () => { this.sfx.play('ui'); this.showRating(); };
+    this.root.querySelector('#m-replays').onclick = () => { this.sfx.play('ui'); this.showReplays(); };
     this.root.querySelector('#m-cards').onclick = () => { this.sfx.play('ui'); this.showCollection(); };
     this.root.querySelector('#m-editor').onclick = () => { this.sfx.play('ui'); this.showCardList(); };
     this.root.querySelector('#m-friends').onclick = () => { this.sfx.play('ui'); this.showFriends(); };
@@ -361,6 +397,267 @@ export class App {
     };
   }
 
+  // ————— прогресс: золото, сундуки, уровни карт —————
+
+  showProgress() {
+    const p = this.progress;
+    const cardPool = this.cards().filter((c) => !c.hidden).map((c) => c.id);
+    const render = () => {
+      const list = this.cards().filter((c) => !c.hidden);
+      this.setScreen(`
+        <div class="screen">
+          <div class="top-bar">
+            <button class="btn btn-ghost" id="back">←</button>
+            <div>
+              <div class="top-title">💰 Прокачка</div>
+              <div class="top-sub">Золото: <b style="color:#f0b13c">${p.gold}</b></div>
+            </div>
+          </div>
+          <div class="screen-scroll">
+            <div class="form-section">
+              <h3>Сундуки (до 4)</h3>
+              ${p.chests.length ? `<div class="row wrap">${p.chests.map((c, i) => `
+                  <button class="btn btn-chip" data-chest="${i}" style="padding:10px 14px">
+                    ${c.icon || '📦'} Открыть
+                  </button>`).join('')}</div>`
+                : '<div class="muted">Сундуков нет. Выигрывайте бои — сундуки падают за победы!</div>'}
+            </div>
+            <div class="form-section">
+              <h3>Уровни карт</h3>
+              <div class="muted mb12">Уровень повышает HP и урон карте (×${levelMultiplier(2).toFixed(2)} за уровень). Золото тратится на апгрейд.</div>
+              ${list.map((c) => {
+                const lvl = cardLevel(p, c.id);
+                const cost = upgradeCost(lvl);
+                return `
+                <div class="friend-row">
+                  <div style="flex:1">
+                    <b>${escapeHtml(c.name)}</b>
+                    <div class="muted" style="font-size:11px">ур. <b>${lvl}</b>/${LEVEL_MAX} • HP ×${levelMultiplier(lvl).toFixed(2)}</div>
+                  </div>
+                  ${lvl < LEVEL_MAX
+                    ? `<button class="btn btn-chip" data-up="${c.id}">⬆ ${cost} 💰</button>`
+                    : '<span style="color:#f0d890">МАКС</span>'}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+      `);
+      this.root.querySelector('#back').onclick = () => this.showMenu();
+      this.root.querySelectorAll('[data-chest]').forEach((el) => {
+        el.onclick = () => {
+          const i = parseInt(el.dataset.chest, 10);
+          const chest = p.chests[i];
+          if (!chest) return;
+          const rew = openChest(chest, cardPool);
+          p.chests.splice(i, 1);
+          p.gold += rew.gold;
+          for (const id of rew.cards) {
+            const lvl = cardLevel(p, id);
+            if (lvl < LEVEL_MAX && Math.random() < 0.5) p.cardLevels[id] = lvl + 1; // копия карты ≈ шанс уровня
+          }
+          this._persist();
+          this.confirmModal(`${rew.icon} ${rew.name}`, `Золото: +${rew.gold} 💰<br>Карты: ${rew.cards.map((id) => {
+            const c = this.cards().find((x) => x.id === id);
+            return escapeHtml(c ? c.name : id);
+          }).join(', ') || '—'}`, [{ label: 'Отлично!', value: true, primary: true }]).then(() => render());
+        };
+      });
+      this.root.querySelectorAll('[data-up]').forEach((el) => {
+        el.onclick = () => {
+          const id = el.dataset.up;
+          const lvl = cardLevel(p, id);
+          const cost = upgradeCost(lvl);
+          if (lvl >= LEVEL_MAX) return;
+          if (p.gold < cost) {
+            this.toast('Не хватает золота');
+            return;
+          }
+          p.gold -= cost;
+          p.cardLevels[id] = lvl + 1;
+          this._persist();
+          this.sfx.play('win');
+          this.toast(`Карта теперь ${lvl + 1} уровня!`);
+          render();
+        };
+      });
+    };
+    render();
+  }
+
+  // ————— рейтинг, лиги, сезоны —————
+
+  showRating() {
+    const user = accounts.current();
+    const trophies = (user && user.trophies) || 0;
+    const league = leagueFor(trophies);
+    const next = nextLeague(trophies);
+    const users = accounts.users()
+      .filter((u) => u.name !== 'admin')
+      .sort((a, b) => (b.trophies || 0) - (a.trophies || 0))
+      .slice(0, 12);
+    const season = accounts.seasonInfo();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🏆 Рейтинг</div>
+            <div class="top-sub">Сезон ${escapeHtml(season.id)} • ${seasonDaysLeft()} дн. до конца</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:52px">${league.icon}</div>
+            <h3 style="margin:6px 0;color:${league.color}">Лига «${league.name}»</h3>
+            <div class="muted">🏆 ${trophies} трофеев${next ? ` • до лиги «${next.name}» ещё ${next.min - trophies}` : ' • максимальная лига!'}</div>
+          </div>
+          <div class="form-section">
+            <h3>Лиги</h3>
+            ${LEAGUES.map((L) => `
+              <div class="friend-row" style="${L.name === league.name ? 'border-color:' + L.color : ''}">
+                <span style="font-size:20px">${L.icon}</span>
+                <div style="flex:1"><b style="color:${L.color}">${L.name}</b>
+                  <div class="muted" style="font-size:11px">от ${L.min} 🏆</div>
+                </div>
+                ${L.name === league.name ? '<span>вы здесь</span>' : ''}
+              </div>`).join('')}
+          </div>
+          <div class="form-section">
+            <h3>Локальная таблица лидеров</h3>
+            ${users.length ? users.map((u, i) => `
+              <div class="friend-row">
+                <span style="width:26px;text-align:center">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1)}</span>
+                <div style="flex:1"><b>${escapeHtml(u.name)}</b>${user && u.name === user.name ? ' <span class="muted">(вы)</span>' : ''}</div>
+                <span>🏆 ${u.trophies || 0}</span>
+              </div>`).join('') : '<div class="muted">Пока никто не сразился</div>'}
+            <div class="muted mt8" style="font-size:11px">Таблица — по аккаунтам этого устройства.</div>
+          </div>
+          <div class="form-section">
+            <h3>Награда сезона</h3>
+            <div class="info-list">В конце сезона по лиге выдаётся золото (сейчас: <b>${seasonReward(trophies).gold} 💰</b>), затем трофеи снижаются на 30%.</div>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+  }
+
+  // ————— реплеи —————
+
+  showReplays() {
+    const list = this.replays;
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🎬 Реплеи</div>
+            <div class="top-sub">Хранятся последние ${REPLAY_LIMIT} боя</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          ${list.length ? list.map((r, i) => `
+            <div class="form-section">
+              <h3>${r.meta.result === 'win' ? '🏆 Победа' : r.meta.result === 'draw' ? '🤝 Ничья' : '💀 Поражение'} • ${new Date(r.meta.date).toLocaleString('ru')}</h3>
+              <div class="muted mb12">${escapeHtml(String(r.meta.mode || 'normal'))} • ${r.snaps.length} кадров</div>
+              <div class="row wrap">
+                <button class="btn btn-primary" data-play="${i}">▶ Смотреть</button>
+                <button class="btn btn-ghost" data-share="${i}">🔗 Код</button>
+                <button class="btn btn-chip danger" data-del="${i}">✕</button>
+              </div>
+            </div>`).join('') : `
+            <div class="form-section" style="text-align:center">
+              <div style="font-size:42px">🎬</div>
+              <h3>Реплеев пока нет</h3>
+              <div class="muted">Сыграйте бой — он запишется автоматически.</div>
+            </div>`}
+          <div class="form-section">
+            <h3>Импорт по коду</h3>
+            <div class="row">
+              <input class="input" id="rp-code" placeholder="BR1.…" style="flex:1;min-width:150px">
+              <button class="btn btn-blue" id="rp-import">📥</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelectorAll('[data-play]').forEach((el) => {
+      el.onclick = () => this.showReplayPlayer(this.replays[parseInt(el.dataset.play, 10)]);
+    });
+    this.root.querySelectorAll('[data-share]').forEach((el) => {
+      el.onclick = async () => {
+        const code = encodeReplay(this.replays[parseInt(el.dataset.share, 10)]);
+        if (!code) return this.toast('Не удалось закодировать');
+        const ok = await copyText(code);
+        this.toast(ok ? 'Код реплея скопирован (' + Math.round(code.length / 1024) + ' КБ)' : 'Скопируйте код вручную');
+      };
+    });
+    this.root.querySelectorAll('[data-del]').forEach((el) => {
+      el.onclick = () => {
+        this.replays.splice(parseInt(el.dataset.del, 10), 1);
+        this._saveReplays();
+        this.showReplays();
+      };
+    });
+    this.root.querySelector('#rp-import').onclick = () => {
+      const r = decodeReplay(this.root.querySelector('#rp-code').value);
+      if (!r) return this.toast('Код не распознан');
+      this.replays = saveReplayToList(this.replays, r);
+      this._saveReplays();
+      this.toast('Реплей импортирован');
+      this.showReplays();
+    };
+  }
+
+  showReplayPlayer(replay) {
+    if (!replay || !replay.snaps || !replay.snaps.length) {
+      this.toast('Пустой реплей');
+      return;
+    }
+    const cardsById = new Map(this.cards().map((c) => [c.id, c]));
+    const battle = new RemoteBattle({ cardsById, sendIntent: () => {} });
+    this.battle = battle;
+    this.battleMode = 'replay';
+    this.ai = { update() {} };
+    this._replayData = replay;
+    this._replayIdx = 0;
+    this._replayTimer = 0;
+    this.setScreen(`
+      <div class="battle-screen">
+        <div class="battle-top">
+          <button class="btn btn-ghost" id="b-pause">←</button>
+          <div class="battle-timer" id="b-timer">0:00</div>
+          <div class="crowns">
+            <span class="crown-p">👑<span id="b-cp">0</span></span>
+            <span class="muted">:</span>
+            <span class="crown-a"><span id="b-ca">0</span>👑</span>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="rp-restart">↻</button>
+        </div>
+        <div class="battle-canvas-wrap" id="b-canvas"></div>
+        <div class="battle-bottom">
+          <div class="battle-hint">🎬 Реплей • ${replay.meta.result === 'win' ? 'Победа' : replay.meta.result === 'draw' ? 'Ничья' : 'Поражение'}</div>
+        </div>
+      </div>
+    `);
+    const canvasHost = this.root.querySelector('#b-canvas');
+    requestAnimationFrame(() => {
+      try {
+        this.battleView = new BattleView(canvasHost, battle, { team: 'player', onDeployRequest: () => {} });
+        this.battleView.resize();
+      } catch (e) {
+        console.error('3D недоступно:', e);
+        canvasHost.innerHTML = '<div style="padding:30px;text-align:center">3D недоступен — реплей не воспроизвести</div>';
+      }
+    });
+    this.root.querySelector('#b-pause').onclick = () => this.showReplays();
+    this.root.querySelector('#rp-restart').onclick = () => this.showReplayPlayer(replay);
+    this._battleLoop();
+  }
+
   // ————— выбор режима боя —————
 
   showBattleMenu() {
@@ -398,6 +695,19 @@ export class App {
             </div>
             <div class="muted mt8" style="font-size:11px">Сервер: <span id="net-url-label">${escapeHtml(this.settings.netServer || DEFAULT_NET_URL)}</span>
               <button class="btn btn-chip" id="net-url-edit" style="margin-left:6px">⚙</button>
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>🎲 Особые режимы</h3>
+            <div class="row wrap">
+              <button class="btn btn-chip" id="m-sudden">💀 Внезапная смерть</button>
+              <button class="btn btn-chip" id="m-x2">⚡ Двойной эликсир</button>
+              <button class="btn btn-chip" id="m-draft">🃏 Черновик</button>
+              <button class="btn btn-chip" id="m-tournament">🏆 Турнир</button>
+            </div>
+            <div class="muted mt8" style="font-size:11px">
+              💀 первая снесённая башня = победа • ⚡ эликсир ×2 с начала •
+              🃏 случайные колоды обоим • 🏆 3 боя подряд, награда за 2 победы
             </div>
           </div>
           <div class="form-section">
@@ -454,6 +764,24 @@ export class App {
         return;
       }
       this._netJoin(code);
+    };
+    this.root.querySelector('#m-sudden').onclick = () => {
+      this.sfx.play('ui');
+      this.startBattle('sudden');
+    };
+    this.root.querySelector('#m-x2').onclick = () => {
+      this.sfx.play('ui');
+      this.startBattle('x2');
+    };
+    this.root.querySelector('#m-draft').onclick = () => {
+      this.sfx.play('ui');
+      this.startBattle('draft');
+    };
+    this.root.querySelector('#m-tournament').onclick = () => {
+      this.sfx.play('ui');
+      this.progress.tournament = { wins: 0, games: 0 };
+      this._persist();
+      this.startBattle('tournament');
     };
     this.root.querySelector('#net-url-edit').onclick = async () => {
       const ov = document.createElement('div');
@@ -739,9 +1067,18 @@ export class App {
             ${bal.ok ? '✅' : '⚠️ <span style="color:#ff9c9c">только для дружеского боя</span>'}
           </div>`;
         })()}
+        ${(() => {
+          const lvl = cardLevel(this.progress, c.id);
+          const cost = upgradeCost(lvl);
+          return `<div class="mt12" style="font-size:12px">
+            <b style="color:#f0d890">Уровень:</b> <b>${lvl}</b>/${LEVEL_MAX} • HP/урон ×${levelMultiplier(lvl).toFixed(2)}
+            ${lvl < LEVEL_MAX ? ` • апгрейд: <b>${cost} 💰</b>` : ' • <b style="color:#f0d890">МАКС</b>'}
+          </div>`;
+        })()}
         ${abilities.length ? `<div class="mt12"><b style="color:#f0d890">Абилки:</b> ${abilities.join(', ')}</div>` : ''}
         <div class="row mt16" style="flex-wrap:wrap">
           <button class="btn btn-primary" data-a="deck">${this.deck.includes(c.id) ? 'Убрать из колоды' : 'В колоду'}</button>
+          ${cardLevel(this.progress, c.id) < LEVEL_MAX ? '<button class="btn btn-chip" data-a="upgrade">⬆ Прокачать</button>' : ''}
           <button class="btn btn-blue" data-a="share">🔗 Поделиться</button>
           <button class="btn btn-ghost" data-a="close">Закрыть</button>
         </div>
@@ -752,6 +1089,22 @@ export class App {
       if (b.dataset.a === 'close') return ov.remove();
       if (b.dataset.a === 'share') {
         this.showShareModal(c);
+        return;
+      }
+      if (b.dataset.a === 'upgrade') {
+        const lvl = cardLevel(this.progress, c.id);
+        const cost = upgradeCost(lvl);
+        if (this.progress.gold < cost) {
+          this.toast('Не хватает золота');
+          return;
+        }
+        this.progress.gold -= cost;
+        this.progress.cardLevels[c.id] = lvl + 1;
+        this._persist();
+        this.sfx.play('win');
+        this.toast(`${c.name}: уровень ${lvl + 1}!`);
+        ov.remove();
+        this.showCardDetail(c.id);
         return;
       }
       if (b.dataset.a === 'deck') {
@@ -1370,6 +1723,11 @@ export class App {
 
     if (clan) {
       const members = [...clan.members].sort((a, b) => (b.trophies || 0) - (a.trophies || 0));
+      const war = accounts.clanWar();
+      const myScore = war.score[clan.tag] || 0;
+      const rivalScore = war.rival.score;
+      const chestNeed = 20;
+      const chestHave = Math.min(chestNeed, clan.chestCrowns || 0);
       this.setScreen(`
         <div class="screen">
           <div class="top-bar">
@@ -1380,6 +1738,26 @@ export class App {
             </div>
           </div>
           <div class="screen-scroll">
+            <div class="form-section">
+              <h3>🎁 Клановый сундук</h3>
+              <div class="muted mb8">Короны победивших членов клана наполняют общий сундук (нужно ${chestNeed}).</div>
+              <div class="bal-bar"><div class="bal-fill" style="width:${Math.round(100 * chestHave / chestNeed)}%"></div></div>
+              <div class="muted mt8">${chestHave}/${chestNeed} корон</div>
+              <button class="btn btn-primary btn-block" id="clan-chest" style="margin-top:10px" ${chestHave < chestNeed ? 'disabled' : ''}>🎁 Забрать награду (150 💰)</button>
+            </div>
+            <div class="form-section">
+              <h3>⚔️ Клановая война недели</h3>
+              <div class="friend-row">
+                <div style="flex:1"><b>[${escapeHtml(clan.tag)}] ${escapeHtml(clan.name)}</b></div>
+                <span>${myScore} очков</span>
+              </div>
+              <div class="friend-row">
+                <div style="flex:1"><b>🛡 ${escapeHtml(war.rival.name)}</b></div>
+                <span>${rivalScore} очков</span>
+              </div>
+              <div class="bal-bar"><div class="bal-fill ${myScore < rivalScore ? 'over' : ''}" style="width:${Math.round(100 * myScore / Math.max(1, myScore + rivalScore))}%"></div></div>
+              <div class="muted mt8" style="font-size:11px">Победы в обычных боях приносят клану очки войны. В конце сезона победителю — золото.</div>
+            </div>
             <div class="form-section">
               <h3>Участники</h3>
               ${members.map((m) => `
@@ -1401,6 +1779,17 @@ export class App {
         </div>
       `);
       this.root.querySelector('#back').onclick = () => this.showMenu();
+      const chestBtn = this.root.querySelector('#clan-chest');
+      if (chestBtn && chestHave >= chestNeed) {
+        chestBtn.onclick = () => {
+          const r = accounts.claimClanChest();
+          if (!r.ok) return this.toast(r.error);
+          this.progress.gold += r.gold;
+          this._persist();
+          this.toast(`Клановый сундук: +${r.gold} 💰`);
+          this.showClan();
+        };
+      }
       this.root.querySelector('#leave').onclick = async () => {
         const ok = await this.confirmModal('Выйти из клана?', `Вы покинете [${clan.tag}] ${clan.name}.`, [
           { label: 'Выйти', value: true, primary: true },
@@ -1589,7 +1978,8 @@ export class App {
       onSave: (m) => {
         editor.dispose();
         onDone(m);
-      }
+      },
+      toast: (m) => this.toast(m)
     });
     this.root.querySelector('#back').onclick = () => {
       editor.dispose();
@@ -1686,11 +2076,37 @@ export class App {
       }
     }
     const all = this.cards().filter((c) => !c.hidden);
+    // правила режима
+    const rules = {
+      matchTime: MATCH_TIME,
+      doubleElixirAt: 120,
+      suddenDeath: false,
+      draft: false
+    };
+    if (mode === 'sudden') {
+      rules.suddenDeath = true;
+      rules.matchTime = 120;
+    }
+    if (mode === 'x2') rules.doubleElixirAt = 0;
+    if (mode === 'draft') rules.draft = true;
+
     let enemyDeck;
+    let playerDeck = this.deck.slice();
     if (mode === 'online-host') {
       enemyDeck = this._onlineGuestDeck || [];
     } else if (mode === 'online-guest') {
       enemyDeck = this._onlineHostDeck || [];
+    } else if (mode === 'draft') {
+      // черновик: случайные колоды обоим из общего пула
+      const pool = all.map((c) => c.id);
+      const pick = () => {
+        const copy = pool.slice();
+        const out = [];
+        while (out.length < 8 && copy.length) out.push(copy.splice(Math.floor(Math.random() * copy.length), 1)[0]);
+        return out;
+      };
+      playerDeck = pick();
+      enemyDeck = pick();
     } else if (friend && Array.isArray(friend.deck) && friend.deck.length >= 4) {
       enemyDeck = friend.deck.slice(0, 8);
     } else {
@@ -1702,7 +2118,8 @@ export class App {
       while (enemyDeck.length < 8) enemyDeck.push(this.deck[enemyDeck.length % this.deck.length]);
     }
 
-    const cardsById = new Map(this.cards().map((c) => [c.id, c]));
+    // колоды в бой — с учётом уровней прокачки
+    const cardsById = new Map(this.cards().map((c) => [c.id, scaleCard(c, cardLevel(this.progress, c.id))]));
 
     this.setScreen(`
       <div class="battle-screen">
@@ -1737,9 +2154,12 @@ export class App {
       this._remoteIntents = [];
     } else {
       this.battle = new Battle({
-        playerDeck: this.deck.slice(),
+        playerDeck,
         enemyDeck,
-        cardsById
+        cardsById,
+        matchTime: rules.matchTime,
+        doubleElixirAt: rules.doubleElixirAt,
+        suddenDeath: rules.suddenDeath
       });
       // онлайн: командой соперника управляет живой игрок, а не ИИ
       this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai');
@@ -1748,6 +2168,14 @@ export class App {
         this._lastSnapAt = 0;
       }
     }
+    this.battleRules = rules;
+    // запись реплея (кроме просмотра реплеев)
+    this._recorder = mode === 'replay' ? null : new ReplayRecorder({
+      mode,
+      playerDeck,
+      enemyDeck,
+      rules
+    });
 
     const canvasHost = this.root.querySelector('#b-canvas');
     requestAnimationFrame(() => {
@@ -1975,7 +2403,20 @@ export class App {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
-      if (!this.battle.finished) {
+      if (this.battleMode === 'replay') {
+        // просмотр реплея: подаём снапшоты по времени записи
+        this._replayTimer = (this._replayTimer || 0) + dt;
+        const snaps = this._replayData ? this._replayData.snaps : [];
+        while (this._replayIdx < snaps.length && snaps[this._replayIdx].time <= this._replayTimer) {
+          this.battle.applySnapshot({ ...snaps[this._replayIdx], t: 'snap' });
+          this._replayIdx++;
+        }
+        this.battle.update(dt);
+        if (this._replayIdx >= snaps.length && !this._replayEnded) {
+          this._replayEnded = true;
+          this.toast('Реплей завершён');
+        }
+      } else if (!this.battle.finished) {
         this.battle.update(dt);
         this.ai.update(dt);
       }
@@ -1983,6 +2424,9 @@ export class App {
       if (this.battleMode === 'online-host') {
         this._hostApplyIntents();
         this._hostMaybeSnapshot(events, now);
+      }
+      if (this._recorder && !this._recorder.done && this.battleMode !== 'online-guest') {
+        try { this._recorder.record(buildHostSnapshot(this.battle, [])); } catch { /* ignore */ }
       }
       if (this.battleView) {
         try {
@@ -1996,7 +2440,8 @@ export class App {
 
       // HUD
       const b = this.battle;
-      const remain = Math.max(0, MATCH_TIME - b.time);
+      const maxTime = (this.battle.rules && this.battle.rules.matchTime) || (this.battleRules && this.battleRules.matchTime) || MATCH_TIME;
+      const remain = Math.max(0, maxTime - b.time);
       const mm = Math.floor(remain / 60);
       const ss = Math.floor(remain % 60);
       const timerEl = this.root.querySelector('#b-timer');
@@ -2063,6 +2508,47 @@ export class App {
     const u = accounts.addBattle(res.winner === 'player', ranked, res.winner === 'draw');
     this.sfx.play(res.winner === 'player' ? 'win' : res.winner === 'draw' ? 'ui' : 'lose');
 
+    // ——— награды: золото, сундуки, клан, реплей ———
+    const p = this.progress;
+    let rewardLine = '';
+    if (this.battleMode !== 'replay') {
+      const gold = res.winner === 'player' ? 25 : res.winner === 'draw' ? 15 : 10;
+      p.gold += gold;
+      rewardLine += `<br>Золото: +${gold} 💰`;
+      if ((res.winner === 'player' || Math.random() < 0.4) && p.chests.length < 4) {
+        const chest = rollChest(res.winner === 'player');
+        p.chests.push(chest);
+        rewardLine += `<br>${chest.icon} ${chest.name} — в «Прокачке»!`;
+      }
+      accounts.addClanActivity(res.winner === 'player', b.crowns ? b.crowns.player : 0);
+    }
+
+    // реплей
+    if (this._recorder) {
+      try {
+        this._recorder.record(buildHostSnapshot(b, []), true);
+        this._recorder.setResult(res.winner === 'player' ? 'win' : res.winner === 'draw' ? 'draw' : 'loss');
+        this.replays = saveReplayToList(this.replays, this._recorder.toJSON());
+      } catch { /* ignore */ }
+      this._recorder = null;
+    }
+
+    // турнир: серия боёв
+    let tournamentLine = '';
+    const tour = p.tournament;
+    if (this.battleMode === 'tournament' && tour) {
+      tour.games += 1;
+      if (res.winner === 'player') tour.wins += 1;
+      tournamentLine = `<br>🏆 Турнир: ${tour.wins} побед из ${tour.games}`;
+      if (tour.games >= 3) {
+        const prize = tour.wins >= 2 ? tour.wins * 100 : 0;
+        p.gold += prize;
+        if (prize) tournamentLine += `<br>Награда турнира: +${prize} 💰`;
+        p.tournament = null;
+      }
+    }
+    this._saveReplays();
+
     const title = res.winner === 'player' ? 'Победа!' : res.winner === 'draw' ? 'Ничья' : 'Поражение';
     const icon = res.winner === 'player' ? '🏆' : res.winner === 'draw' ? '🤝' : '💀';
     const trophyLine = u && ranked && res.winner !== 'draw'
@@ -2074,9 +2560,11 @@ export class App {
       <div class="modal">
         <div class="result-big">${icon}</div>
         <h2>${title}</h2>
-        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}${trophyLine}</p>
+        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}${trophyLine}${rewardLine}${tournamentLine}</p>
         <button class="btn btn-primary" data-a="menu">В меню</button>
-        <button class="btn btn-blue" data-a="again">Ещё бой</button>
+        ${this.battleMode === 'tournament' && tour
+          ? '<button class="btn btn-blue" data-a="again">Следующий бой турнира</button>'
+          : '<button class="btn btn-blue" data-a="again">Ещё бой</button>'}
       </div>`;
     ov.addEventListener('click', (ev) => {
       const btn = ev.target.closest('[data-a]');

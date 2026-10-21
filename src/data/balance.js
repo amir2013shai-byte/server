@@ -23,7 +23,8 @@ export const DEFAULT_BALANCE = {
   ability: {          // цена механик (абилок)
     shield: 102, freezeHit: 128, slowHit: 77, stunHit: 110, chain: 136,
     lifesteal: 102, knockback: 60, charge: 128, spawnOnDeath: 119,
-    deathDamage: 85, healAura: 145, spawnTroops: 153, rageOnDeploy: 110
+    deathDamage: 85, healAura: 145, spawnTroops: 153, rageOnDeploy: 110,
+    crit: 130, dodge: 150, revive: 190, thorns: 115, taunt: 95, buffAura: 140
   }
 };
 
@@ -81,6 +82,12 @@ export function cardSpend(card, P = DEFAULT_BALANCE) {
     if (ab.type === 'stunHit') add('Стан', num(ab.duration) * 60);
     if (ab.type === 'slowHit') add('Слоу', num(ab.duration) * 18);
     if (ab.type === 'lifesteal') add('Вампиризм', num(ab.percent) * 60);
+    if (ab.type === 'crit') add('Крит', (num(ab.multiplier, 1) - 1) * 80 + num(ab.chance) * 60);
+    if (ab.type === 'dodge') add('Уклонение', num(ab.chance) * 120);
+    if (ab.type === 'revive') add('Возрождение', num(ab.hpPercent) * 100);
+    if (ab.type === 'thorns') add('Шипы', num(ab.percent) * 100);
+    if (ab.type === 'taunt') add('Провокация', num(ab.radius) * 12);
+    if (ab.type === 'buffAura') add('Аура', (num(ab.damageMul, 1) - 1) * 150 + (num(ab.speedMul, 1) - 1) * 150 + num(ab.radius) * 10);
   }
 
   const total = parts.reduce((s, p) => s + p.value, 0);

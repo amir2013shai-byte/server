@@ -65,6 +65,13 @@ export class Battle {
     }
 
     this._buildTowers();
+
+    // правила матча (режимы боя)
+    this.rules = {
+      matchTime: opts.matchTime || MATCH_TIME,
+      doubleElixirAt: opts.doubleElixirAt !== undefined ? opts.doubleElixirAt : DOUBLE_ELIXIR_AT,
+      suddenDeath: !!opts.suddenDeath
+    };
   }
 
   _shuffle(arr) {
@@ -131,10 +138,30 @@ export class Battle {
     this.time += dt;
 
     // эликсир
-    const rate = (this.time >= DOUBLE_ELIXIR_AT ? 1 / 1.4 : 1 / 2.8);
+    const rate = (this.time >= this.rules.doubleElixirAt ? 1 / 1.4 : 1 / 2.8);
     for (const team of ['player', 'ai']) {
       const t = this.teams[team];
       t.elixir = Math.min(10, t.elixir + rate * dt);
+    }
+
+    // ауры усиления (buffAura): пересчитываем каждый тик
+    for (const u of this.units) {
+      u.buffDmgMul = 1;
+      u.buffSpeedMul = 1;
+    }
+    for (const a of this.units) {
+      if (!a.alive) continue;
+      for (const ab of a.card.abilities || []) {
+        if (ab.type !== 'buffAura') continue;
+        const r2 = (ab.radius || 3) ** 2;
+        for (const ally of this.units) {
+          if (!ally.alive || ally.team !== a.team) continue;
+          if (dist2(a.x, a.y, ally.x, ally.y) <= r2) {
+            ally.buffDmgMul = Math.max(ally.buffDmgMul, ab.damageMul || 1.1);
+            ally.buffSpeedMul = Math.max(ally.buffSpeedMul, ab.speedMul || 1.1);
+          }
+        }
+      }
     }
 
     // зоны (ядовитые облака и т.п.)
@@ -167,7 +194,11 @@ export class Battle {
     const kingA = this.towers.find((t) => t.kind === 'king' && t.team === 'ai');
     if (!kingP.alive) return this._finish('ai', 'king');
     if (!kingA.alive) return this._finish('player', 'king');
-    if (this.time >= MATCH_TIME) {
+    // внезапная смерть: первая снесённая башня — сразу победа
+    if (this.rules.suddenDeath && (this.crowns.player > 0 || this.crowns.ai > 0)) {
+      return this._finish(this.crowns.player > 0 ? 'player' : 'ai', 'sudden');
+    }
+    if (this.time >= this.rules.matchTime) {
       if (this.crowns.player !== this.crowns.ai) {
         return this._finish(this.crowns.player > this.crowns.ai ? 'player' : 'ai', 'crowns');
       }
@@ -304,7 +335,11 @@ export class Battle {
         u.shieldHp = ab.hp;
         u.shieldMax = ab.hp;
       }
+      if (ab.type === 'taunt') u.tauntRadius = ab.radius || 3;
     }
+    u.buffDmgMul = 1;
+    u.buffSpeedMul = 1;
+    u.revived = false;
     this.units.push(u);
     this.emit({ type: 'spawn', id: u.id, card: c.id, x, y, team, flying: u.flying });
     return u;
@@ -442,7 +477,7 @@ export class Battle {
     const frozen = this.time < u.frozenUntil;
     const slowed = this.time < u.slowUntil;
     const raged = this.time < u.rageUntil;
-    const speedMul = (raged ? u.rageMul : 1) * (slowed ? u.slowFactor : 1);
+    const speedMul = (raged ? u.rageMul : 1) * (slowed ? u.slowFactor : 1) * (u.buffSpeedMul || 1);
     const atkMul = (raged ? u.attackRageMul : 1);
 
     // аура лечения (постоянная или по таймеру)
@@ -552,6 +587,14 @@ export class Battle {
       if (e.flying && u.targets === 'ground') return false;
       return true;
     };
+
+    // провокация (taunt): кто рядом с «провокатором» — обязан атаковать его
+    if (!u.isBuilding) {
+      for (const e of this.units) {
+        if (!canHit(e) || e.isBuilding || !e.tauntRadius) continue;
+        if (dist2(u.x, u.y, e.x, e.y) <= e.tauntRadius ** 2) return e.id;
+      }
+    }
 
     // стационарные здания атакуют только войска, никогда — башни
     if (u.isBuilding) {
@@ -667,12 +710,17 @@ export class Battle {
   }
 
   _attack(u, target) {
-    let dmg = u.damage;
+    let dmg = u.damage * (u.buffDmgMul || 1);
     for (const ab of u.card.abilities || []) {
       if (ab.type === 'charge' && u.charged) {
         dmg *= ab.multiplier || 2;
         u.charged = false;
         this.emit({ type: 'chargeFx', id: u.id, x: u.x, y: u.y });
+      }
+      // критический удар
+      if (ab.type === 'crit' && Math.random() < (ab.chance || 0.25)) {
+        dmg *= ab.multiplier || 2;
+        this.emit({ type: 'crit', id: u.id, x: u.x, y: u.y });
       }
     }
 
@@ -762,6 +810,15 @@ export class Battle {
 
   _damage(entity, amount, opts = {}) {
     if (!entity.alive || amount <= 0) return;
+    // уклонение: шанс полностью уйти от урона
+    if (entity.card && entity.card.abilities) {
+      for (const ab of entity.card.abilities) {
+        if (ab.type === 'dodge' && Math.random() < (ab.chance || 0.3)) {
+          this.emit({ type: 'dodge', id: entity.id });
+          return;
+        }
+      }
+    }
     if (entity.shieldHp > 0) {
       const absorbed = Math.min(entity.shieldHp, amount);
       entity.shieldHp -= absorbed;
@@ -771,6 +828,16 @@ export class Battle {
     }
     entity.hp -= amount;
     this.emit({ type: 'hit', id: entity.id, kind: 'damage', amount });
+    // шипы: возвращаем часть урона атакующему
+    if (entity.card && entity.card.abilities && opts.source) {
+      for (const ab of entity.card.abilities) {
+        if (ab.type !== 'thorns') continue;
+        const src = this._byId(opts.source);
+        if (src && src.alive && !src.isTower) {
+          this._damage(src, amount * (ab.percent || 0.3), { source: entity.id, team: entity.team });
+        }
+      }
+    }
     if (entity.hp <= 0) this._kill(entity, opts.source);
   }
 
@@ -782,6 +849,21 @@ export class Battle {
 
   _kill(entity, sourceId) {
     if (!entity.alive) return;
+
+    // возрождение: один раз поднимается с частью HP
+    if (!entity.isTower && entity.card && entity.card.abilities && !entity.revived) {
+      for (const ab of entity.card.abilities) {
+        if (ab.type === 'revive') {
+          entity.revived = true;
+          entity.alive = true;
+          entity.hp = Math.max(1, entity.maxHp * (ab.hpPercent || 0.5));
+          entity.deathDone = true; // смертельные абилки не срабатывают
+          this.emit({ type: 'revive', id: entity.id, x: entity.x, y: entity.y, team: entity.team });
+          return;
+        }
+      }
+    }
+
     entity.alive = false;
     entity.hp = 0;
 

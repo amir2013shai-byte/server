@@ -2,7 +2,7 @@
 // Формат части: { shape, pos:[x,y,z], rot:[x,y,z] (радианы), scale:[x,y,z], color, emissive }
 // Основание модели — y=0 (ноги/низ), модель «смотрит» вдоль +Z.
 
-export const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'capsule'];
+export const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'capsule', 'ring', 'halfsphere', 'wedge'];
 
 export function P(shape, pos, scale, color, opts = {}) {
   return {

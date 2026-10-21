@@ -2,6 +2,42 @@
 // Код можно переслать другу (вставить в импорт) или открыть по ссылке #card=…
 
 const PREFIX = 'BC1.';
+const MODEL_PREFIX = 'BM1.';
+
+// 3D-модель → код (для обмена моделями из редактора)
+export function encodeModel(model) {
+  try {
+    const json = JSON.stringify({ parts: (model && model.parts) || [] });
+    return MODEL_PREFIX + bytesToB64url(new TextEncoder().encode(json));
+  } catch {
+    return null;
+  }
+}
+
+export function decodeModel(code) {
+  try {
+    const s = String(code || '').trim();
+    if (!s.startsWith(MODEL_PREFIX)) return null;
+    const json = new TextDecoder().decode(b64urlToBytes(s.slice(MODEL_PREFIX.length)));
+    const m = JSON.parse(json);
+    if (!m || !Array.isArray(m.parts) || !m.parts.length) return null;
+    // базовая санитизация полей частей
+    const parts = m.parts.slice(0, 80).map((p) => ({
+      shape: typeof p.shape === 'string' ? p.shape : 'box',
+      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(Number) : [0, 0, 0],
+      rot: Array.isArray(p.rot) ? p.rot.slice(0, 3).map(Number) : [0, 0, 0],
+      scale: Array.isArray(p.scale) ? p.scale.slice(0, 3).map(Number) : [1, 1, 1],
+      color: typeof p.color === 'string' ? p.color : '#cccccc',
+      emissive: typeof p.emissive === 'string' ? p.emissive : '#000000',
+      tex: typeof p.tex === 'string' ? p.tex : 'none',
+      opacity: Number.isFinite(p.opacity) ? Math.min(1, Math.max(0.1, p.opacity)) : 1,
+      anim: typeof p.anim === 'string' ? p.anim : 'none'
+    }));
+    return { parts };
+  } catch {
+    return null;
+  }
+}
 
 function bytesToB64url(bytes) {
   let bin = '';
