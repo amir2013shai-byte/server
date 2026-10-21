@@ -355,12 +355,34 @@ export class BattleView {
     ctx.fillStyle = '#2e7dd6';
     ctx.fillRect(tl.x, r1.y, fw, r2.y - r1.y);
 
-    // мосты
+    // мосты — дощатый настил
     for (const bx of [-ARENA.bridgeX, ARENA.bridgeX]) {
       const b1 = this.worldToScreen(bx - ARENA.bridgeHalfW, ARENA.riverY + 0.9);
       const b2 = this.worldToScreen(bx + ARENA.bridgeHalfW, -ARENA.riverY - 0.9);
-      ctx.fillStyle = '#9a7248';
-      ctx.fillRect(b1.x, b1.y, b2.x - b1.x, b2.y - b1.y);
+      const w = b2.x - b1.x, h = b2.y - b1.y;
+      // настил
+      ctx.fillStyle = '#a5794c';
+      ctx.fillRect(b1.x, b1.y, w, h);
+      // поперечные доски
+      ctx.strokeStyle = 'rgba(72, 46, 22, 0.32)';
+      ctx.lineWidth = Math.max(1.5, w * 0.03);
+      const planks = 7;
+      for (let i = 1; i < planks; i++) {
+        const y = b1.y + (h * i) / planks;
+        ctx.beginPath();
+        ctx.moveTo(b1.x, y);
+        ctx.lineTo(b2.x, y);
+        ctx.stroke();
+      }
+      // боковые брусья
+      ctx.fillStyle = '#8a6238';
+      const rail = Math.max(3, w * 0.12);
+      ctx.fillRect(b1.x, b1.y, rail, h);
+      ctx.fillRect(b2.x - rail, b1.y, rail, h);
+      // тень краёв
+      ctx.strokeStyle = 'rgba(52, 32, 14, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(b1.x, b1.y, w, h);
     }
 
     // центральная линия
@@ -462,10 +484,10 @@ export class BattleView {
   _drawUnitShadow(ctx, u) {
     const p = this.worldToScreen(u.x, u.y);
     const scale = this._scale(1);
-    const r = scale * (u.isBuilding ? 1.25 : 0.72);
-    ctx.fillStyle = u.flying ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.28)';
+    const r = scale * (u.isBuilding ? 1.15 : Math.max(0.5, Math.min(1.05, (u.radius || 0.7) * 1.02)));
+    ctx.fillStyle = u.flying ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.18)';
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y + r * 0.55, r * (u.flying ? 0.75 : 1), r * 0.38, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y + r * 0.5, r * (u.flying ? 0.75 : 1), r * 0.32, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -477,16 +499,16 @@ export class BattleView {
     const raged = b.time < u.rageUntil;
     const moving = u.speed > 0 && !frozen && !(u.isBuilding);
 
-    // кольцо команды
-    const ringR = scale * (u.isBuilding ? 1.3 : 0.85);
+    // кольцо команды = «хитбокс» юнита — совпадает с его реальным радиусом
+    const ringR = scale * (u.isBuilding ? 1.3 : Math.max(0.55, Math.min(1.15, (u.radius || 0.7) * 1.1)));
     ctx.strokeStyle = frozen ? '#9adcff' : raged ? '#c26bf2' : (u.team === 'player' ? PLAYER_RING : ENEMY_RING);
-    ctx.lineWidth = Math.max(2, scale * 0.12);
+    ctx.lineWidth = Math.max(2, scale * 0.1);
     ctx.beginPath();
     ctx.ellipse(p.x, p.y + ringR * 0.35, ringR, ringR * 0.45, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // спрайт карты (с анимацией рисунка)
-    const size = scale * (u.isBuilding ? 2.3 : u.card && u.card.count > 2 ? 1.45 : 1.85);
+    // спрайт карты (с анимацией рисунка) — соразмерен юниту
+    const size = scale * (u.isBuilding ? 2.3 : Math.max(1.3, Math.min(2.4, (u.radius || 0.7) * 2.6)));
     drawCardSprite(ctx, u.card || { id: u.cardId }, p.x, p.y - size * 0.28, size, t, { moving, flying: u.flying });
 
     // статусы
@@ -507,8 +529,8 @@ export class BattleView {
     // HP юнита (когда повреждён)
     const ratio = Math.max(0, u.hp / u.maxHp);
     if (ratio < 1) {
-      const barW = scale * 1.7;
-      const barH = Math.max(3, scale * 0.22);
+      const barW = ringR * 2.3;
+      const barH = Math.max(3, scale * 0.2);
       const bx = p.x - barW / 2;
       const by = p.y - size * 0.95;
       ctx.fillStyle = 'rgba(10,14,24,0.8)';

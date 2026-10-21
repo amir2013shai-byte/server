@@ -157,15 +157,33 @@ export function spriteFromModel(model, size = 96) {
   const ctx = c.getContext('2d');
   if (!ctx) return c;
   const parts = (model && model.parts) || [];
-  const k = size / 3.4; // модель примерно в [-1.7..1.7]
-  const cx = size / 2, cy = size / 2;
+  if (!parts.length) return c;
+  // проекция части в плоскость спрайта: x → вправо, z → вглубь, y → вверх
+  const projOf = (p) => ({
+    x: (p.pos?.[0] || 0) * 0.75,
+    y: (p.pos?.[2] || 0) * 0.75 - (p.pos?.[1] || 0) * 0.28,
+    sx: Math.max(0.02, (p.scale?.[0] || 1) * 0.62),
+    sy: Math.max(0.02, (p.scale?.[2] || p.scale?.[1] || 1) * 0.62)
+  });
+  const proj = parts.map(projOf);
+  // авто-подгон: модель ЛЮБОГО размера занимает почти весь спрайт
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const q of proj) {
+    minX = Math.min(minX, q.x - q.sx / 2); maxX = Math.max(maxX, q.x + q.sx / 2);
+    minY = Math.min(minY, q.y - q.sy / 2); maxY = Math.max(maxY, q.y + q.sy / 2);
+  }
+  const ext = Math.max(maxX - minX, maxY - minY) || 1;
+  const k = (size * 0.88) / ext;
+  const cx = size / 2 - ((minX + maxX) / 2) * k;
+  const cy = size / 2 - ((minY + maxY) / 2) * k;
   // тело по центру — сортируем так, чтобы крупное было снизу
-  const sorted = parts.slice().sort((a, b) => (a.pos?.[1] || 0) - (b.pos?.[1] || 0));
-  for (const p of sorted) {
-    const px = cx + (p.pos?.[0] || 0) * k * 0.75;
-    const py = cy + (p.pos?.[2] || 0) * k * 0.75 - (p.pos?.[1] || 0) * k * 0.28;
-    const sx = Math.max(3, (p.scale?.[0] || 1) * k * 0.62);
-    const sy = Math.max(3, (p.scale?.[2] || p.scale?.[1] || 1) * k * 0.62);
+  const sorted = parts.map((p, i) => ({ p, q: proj[i] }))
+    .sort((a, b) => (a.p.pos?.[1] || 0) - (b.p.pos?.[1] || 0));
+  for (const { p, q } of sorted) {
+    const px = cx + q.x * k;
+    const py = cy + q.y * k;
+    const sx = Math.max(3, q.sx * k);
+    const sy = Math.max(3, q.sy * k);
     const color = p.color || '#888888';
     ctx.fillStyle = color;
     ctx.globalAlpha = p.opacity !== undefined ? Math.max(0.15, p.opacity) : 1;
