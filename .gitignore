@@ -1,6 +1,7 @@
 # зависимости и сборка
 node_modules/
 dist/
+tools/apk/.cache/
 .vite/
 
 # android-проект Capacitor (генерируется командой npx cap add android)
