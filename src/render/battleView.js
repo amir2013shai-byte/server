@@ -198,52 +198,81 @@ export class BattleView {
 
   // ——— ввод ———
 
+  // Точка экрана (clientX/Y) → точка арены {x,y} или null, если луч не бьёт в землю.
+  screenToGround(clientX, clientY) {
+    const el = this.renderer && this.renderer.domElement;
+    if (!el || !this.camera) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const px = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const py = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera({ x: px, y: py }, this.camera);
+    const pt = new THREE.Vector3();
+    const hit = this.raycaster.ray.intersectPlane(this.groundPlane, pt);
+    return hit ? { x: pt.x, y: pt.z } : null;
+  }
+
+  // Показать «призрак» карты в точке экрана (для перетаскивания из руки).
+  ghostTo(clientX, clientY) {
+    const p = this.screenToGround(clientX, clientY);
+    if (p) this._updateGhost(p.x, p.y);
+    return p;
+  }
+
   _bindInput() {
     const el = this.renderer.domElement;
-    const toGround = (ev) => {
-      const rect = el.getBoundingClientRect();
-      const px = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-      const py = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-      this.raycaster.setFromCamera({ x: px, y: py }, this.camera);
-      const pt = new THREE.Vector3();
-      const hit = this.raycaster.ray.intersectPlane(this.groundPlane, pt);
-      return hit ? { x: pt.x, y: pt.z } : null;
-    };
 
-    const down = (ev) => {
-      ev.preventDefault();
+    const down = (x, y) => {
       this.pointer.down = true;
-      const p = toGround(ev);
+      const p = this.screenToGround(x, y);
       if (p) {
         this.pointer.x = p.x;
         this.pointer.y = p.y;
         if (this.pendingCard) this._updateGhost(p.x, p.y);
       }
     };
-    const move = (ev) => {
+    const move = (x, y) => {
       if (!this.pointer.down) return;
-      ev.preventDefault();
-      const p = toGround(ev);
+      const p = this.screenToGround(x, y);
       if (p) {
         this.pointer.x = p.x;
         this.pointer.y = p.y;
         if (this.pendingCard) this._updateGhost(p.x, p.y);
       }
     };
-    const up = (ev) => {
+    const up = (x, y) => {
       if (!this.pointer.down) return;
-      ev.preventDefault();
       this.pointer.down = false;
-      if (this.pendingCard && this.opts.onDeployRequest) {
-        this.opts.onDeployRequest(this.pendingCard, this.pointer.x, this.pointer.y);
-      }
+      if (!this.pendingCard || !this.opts.onDeployRequest) return;
+      const p = this.screenToGround(x, y) || { x: this.pointer.x, y: this.pointer.y };
+      this.opts.onDeployRequest(this.pendingCard.id || this.pendingCard, p.x, p.y);
+    };
+    const cancel = () => {
+      this.pointer.down = false;
     };
 
-    el.addEventListener('pointerdown', down);
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
-    this._inputHandlers = { down, move, up };
+    const handlers = [];
+    const on = (type, fn, opts) => {
+      el.addEventListener(type, fn, opts);
+      handlers.push([type, fn, opts]);
+    };
+
+    if (typeof window !== 'undefined' && window.PointerEvent) {
+      on('pointerdown', (ev) => { ev.preventDefault(); down(ev.clientX, ev.clientY); });
+      on('pointermove', (ev) => { if (this.pointer.down) ev.preventDefault(); move(ev.clientX, ev.clientY); });
+      on('pointerup', (ev) => up(ev.clientX, ev.clientY));
+      on('pointercancel', cancel);
+    } else {
+      // старые WebView без Pointer Events
+      on('touchstart', (ev) => { ev.preventDefault(); const t = ev.touches[0]; if (t) down(t.clientX, t.clientY); }, { passive: false });
+      on('touchmove', (ev) => { if (this.pointer.down) ev.preventDefault(); const t = ev.touches[0]; if (t) move(t.clientX, t.clientY); }, { passive: false });
+      on('touchend', (ev) => { const t = ev.changedTouches[0]; if (t) up(t.clientX, t.clientY); });
+      on('touchcancel', cancel);
+      on('mousedown', (ev) => { ev.preventDefault(); down(ev.clientX, ev.clientY); });
+      on('mousemove', (ev) => move(ev.clientX, ev.clientY));
+      on('mouseup', (ev) => up(ev.clientX, ev.clientY));
+    }
+    this._inputHandlers = handlers;
   }
 
   setPendingCard(card) {
@@ -590,10 +619,10 @@ export class BattleView {
     this._disposed = true;
     window.removeEventListener('resize', this._onResize);
     const el = this.renderer.domElement;
-    el.removeEventListener('pointerdown', this._inputHandlers.down);
-    el.removeEventListener('pointermove', this._inputHandlers.move);
-    el.removeEventListener('pointerup', this._inputHandlers.up);
-    el.removeEventListener('pointercancel', this._inputHandlers.up);
+    for (const [type, fn, opts] of this._inputHandlers || []) {
+      el.removeEventListener(type, fn, opts);
+    }
+    this._inputHandlers = [];
     this.renderer.dispose();
     el.remove();
     this.fxLayer.remove();

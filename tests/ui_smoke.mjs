@@ -151,6 +151,135 @@ step('петля боя живёт', () => {
   }
 });
 
+// ——— установка карт на арену (главный баг-репорт: «не могу ставить карты») ———
+
+const handIds = () => app.battle.teams.player.hand.slice();
+const cardById = (id) => app.cards().find((c) => c.id === id);
+const usePointer = !!window.PointerEvent;
+const evType = (base) => (usePointer ? base : base.replace('pointer', 'mouse'));
+const fire = (el, type, x, y) => el.dispatchEvent(new window.MouseEvent(evType(type), {
+  clientX: x, clientY: y, bubbles: true, cancelable: true
+}));
+
+step('высадка по id работает (своя половина)', () => {
+  app.battle.teams.player.elixir = 10;
+  const id = handIds()[0];
+  const before = { units: app.battle.units.length, elixir: app.battle.teams.player.elixir };
+  app._tryDeploy(id, 0, -8);
+  const grew = app.battle.units.length > before.units;
+  const paid = app.battle.teams.player.elixir < before.elixir;
+  if (!grew && !paid) throw new Error('деплоя не произошло');
+});
+
+step('высадка ОБЪЕКТОМ карты работает (регрессия бага)', () => {
+  app.battle.teams.player.elixir = 10;
+  const id = handIds()[0];
+  const cardObj = cardById(id); // battleView передаёт объект — раньше молча игнорировался
+  if (!cardObj || typeof cardObj !== 'object') throw new Error('нет объекта карты');
+  const before = { units: app.battle.units.length, elixir: app.battle.teams.player.elixir };
+  app._tryDeploy(cardObj, 0, -7);
+  const grew = app.battle.units.length > before.units;
+  const paid = app.battle.teams.player.elixir < before.elixir;
+  if (!grew && !paid) throw new Error('объект карты не высадился — баг вернулся');
+});
+
+step('своя половина: заклинание тоже ставится', () => {
+  const spell = app.cards().find((c) => c.type === 'spell' && !c.hidden && c.cost <= 10);
+  if (!spell) { console.log('    (заклинаний в наборе нет)'); return; }
+  app.battle.teams.player.elixir = 10;
+  const before = app.battle.teams.player.elixir;
+  app._tryDeploy(spell, 0, -6);
+  if (app.battle.teams.player.elixir >= before) throw new Error('заклинание на своей половине не применилось');
+});
+
+step('вражеская половина отклоняется', () => {
+  app.battle.teams.player.elixir = 10;
+  const id = handIds()[0];
+  const before = { units: app.battle.units.length, elixir: app.battle.teams.player.elixir };
+  app._tryDeploy(id, 0, 8);
+  if (app.battle.units.length !== before.units) throw new Error('юнит высадился на вражеской половине!');
+  if (app.battle.teams.player.elixir !== before.elixir) throw new Error('эликсир потрачен на вражеской половине!');
+});
+
+step('тап по карте выбирает её', () => {
+  const id = handIds()[0];
+  app.selectedCard = null;
+  app._renderHand();
+  let el = window.document.querySelector(`[data-hand="${id}"]`);
+  if (!el) throw new Error('нет карты в руке');
+  fire(el, 'pointerdown', 50, 400);
+  fire(el, 'pointerup', 50, 400);
+  if (app.selectedCard !== id) throw new Error('тап не выбрал карту: ' + app.selectedCard);
+  el = window.document.querySelector(`[data-hand="${id}"]`); // рука перерисована — ищем заново
+  fire(el, 'pointerdown', 50, 400);
+  fire(el, 'pointerup', 50, 400);
+  if (app.selectedCard !== null) throw new Error('повторный тап не снял выбор');
+});
+
+step('перетаскивание из руки высаживает карту', () => {
+  // заглушка 3D-вида: WebGL в jsdom нет, но жест должен дойти до деплоя
+  app.battleView = {
+    pending: null,
+    setPendingCard(c) { this.pending = c; },
+    screenToGround() { return { x: 1, y: -8 }; },
+    ghostTo() { return { x: 1, y: -8 }; },
+    update() {}, dispose() {}, resize() {}
+  };
+  app.battle.teams.player.elixir = 10;
+  const id = handIds()[0];
+  const before = { elixir: app.battle.teams.player.elixir, units: app.battle.units.length };
+  const el = window.document.querySelector(`[data-hand="${id}"]`);
+  fire(el, 'pointerdown', 50, 400);
+  fire(window.document, 'pointermove', 50, 320); // >10px — жест «перетаскивание»
+  fire(window.document, 'pointerup', 50, 320);
+  const paid = app.battle.teams.player.elixir < before.elixir;
+  const grew = app.battle.units.length > before.units;
+  if (!paid && !grew) throw new Error('перетаскивание не высадило карту');
+  app.battleView = null;
+});
+
+step('жест мимо арены отменяется без траты', () => {
+  app.battleView = {
+    pending: null,
+    setPendingCard(c) { this.pending = c; },
+    screenToGround() { return null; }, // отпустили «в небо»
+    ghostTo() { return null; },
+    update() {}, dispose() {}, resize() {}
+  };
+  app.battle.teams.player.elixir = 10;
+  const id = handIds()[0];
+  const before = app.battle.teams.player.elixir;
+  const el = window.document.querySelector(`[data-hand="${id}"]`);
+  fire(el, 'pointerdown', 50, 400);
+  fire(window.document, 'pointermove', 50, 320);
+  fire(window.document, 'pointerup', 50, 320);
+  if (app.battle.teams.player.elixir !== before) throw new Error('эликсир потрачен при отмене жеста');
+  if (app.selectedCard) throw new Error('выбор не сброшен после отмены');
+  app.battleView = null;
+});
+
+step('2D-фолбэк: арена рисуется и принимает высадку', () => {
+  // пересоздаём бой: в jsdom WebGL нет → должна появиться 2D-арена
+  app.startBattle();
+});
+await sleep(80);
+
+step('2D-фолбэк: клик по своей половине высаживает карту', () => {
+  const fa = $('#b-farena');
+  if (!fa) { console.log('    (3D работает — фолбэк не нужен)'); return; }
+  const own = fa.querySelector('.fa-own');
+  if (!own) throw new Error('нет своей половины на 2D-арене');
+  const id = handIds()[0];
+  app.selectedCard = id;
+  app.battle.teams.player.elixir = 10;
+  const before = app.battle.teams.player.elixir;
+  // getBoundingClientRect в jsdom нулевой — кликаем по центру элемента
+  own.dispatchEvent(new window.MouseEvent('click', { clientX: 50, clientY: 400, bubbles: true }));
+  if (app.battle.teams.player.elixir >= before) {
+    throw new Error('клик по 2D-арене не высадил карту');
+  }
+});
+
 console.log('— итог —');
 if (errors.length) {
   console.error('ОШИБКИ (' + errors.length + '):');

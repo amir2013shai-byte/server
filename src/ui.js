@@ -796,7 +796,7 @@ export class App {
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
           </div>
           <div class="hand-row" id="b-hand"></div>
-          <div class="battle-hint">Все карты ставятся только на свою половину арены</div>
+          <div class="battle-hint">Перетащите карту на арену или тапните карту → тапните свою половину</div>
         </div>
       </div>
     `);
@@ -820,14 +820,34 @@ export class App {
       } catch (e) {
         console.error('3D недоступно:', e);
         canvasHost.innerHTML = `
-          <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">
-            <div style="font-size:44px">🎮</div>
-            <div style="font-size:16px;font-weight:700">3D-режим недоступен</div>
-            <div class="muted">На этом устройстве WebView не поддерживает WebGL.
-            Бой всё равно идёт — выбирайте карты внизу.</div>
+          <div class="fallback-wrap">
+            <div style="font-size:34px">🎮</div>
+            <div style="font-size:14px;font-weight:700">3D-режим недоступен — упрощённая арена</div>
+            <div class="fallback-arena" id="b-farena">
+              <div class="fa-half fa-enemy">⚔️ Вражеская половина</div>
+              <div class="fa-half fa-own">🛡️ Своя половина — нажмите, чтобы поставить карту</div>
+            </div>
           </div>`;
+        const fa = canvasHost.querySelector('#b-farena');
+        if (fa) {
+          fa.querySelectorAll('.fa-half').forEach((halfEl) => {
+            halfEl.addEventListener('click', (ev) => {
+              if (!this.selectedCard) { this.toast('Сначала выберите карту внизу'); return; }
+              const own = halfEl.classList.contains('fa-own');
+              if (!own) { this.toast('Ставьте карты только на свою половину арены!'); return; }
+              const r = halfEl.getBoundingClientRect();
+              const fx = Math.min(1, Math.max(0, (ev.clientX - r.left) / (r.width || 1)));
+              const fy = Math.min(1, Math.max(0, (ev.clientY - r.top) / (r.height || 1)));
+              const x = -8.5 + fx * 17;
+              const y = -15.5 + fy * 14; // своя половина: от -15.5 (низ) до -1.5 (у реки)
+              this._tryDeploy(this.selectedCard, x, y);
+            });
+          });
+        }
       }
     });
+
+    this._bindHandDrag();
 
     this.root.querySelector('#b-pause').onclick = () => this._pauseMenu();
     this.root.querySelector('#b-mute').onclick = () => {
@@ -859,37 +879,146 @@ export class App {
         </div>`;
     }).join('');
     handEl.querySelectorAll('[data-hand]').forEach((el) => {
-      el.onclick = () => {
-        const id = el.dataset.hand;
-        const c = this.cards().find((x) => x.id === id);
-        if (!c) return;
-        if (this.selectedCard === id) {
-          this.selectedCard = null;
-          this.battleView && this.battleView.setPendingCard(null);
-        } else {
-          this.selectedCard = id;
-          this.battleView && this.battleView.setPendingCard(c);
-        }
-        this._renderHand();
-      };
+      const id = el.dataset.hand;
+      // тап — выбрать/снять выбор; перетаскивание — высадить на арену (как в Clash-игрушках)
+      const down = (ev) => this._handDown(ev, id, el);
+      if (typeof window !== 'undefined' && window.PointerEvent) {
+        el.addEventListener('pointerdown', down);
+      } else {
+        el.addEventListener('touchstart', (ev) => {
+          ev.preventDefault();
+          const t = ev.touches[0];
+          if (t) this._handDown(t, id, el, ev);
+        }, { passive: false });
+        el.addEventListener('mousedown', (ev) => this._handDown(ev, id, el));
+      }
     });
+  }
+
+  // ——— перетаскивание карты из руки ———
+
+  _handDown(pt, id, el, origEvent) {
+    if (!this.battle || this.battle.finished) return;
+    if (origEvent && origEvent.preventDefault) origEvent.preventDefault();
+    this._handDrag = {
+      id,
+      el,
+      x0: pt.clientX,
+      y0: pt.clientY,
+      moved: false,
+      wasSelected: this.selectedCard === id
+    };
+    this._handDragMoved = false;
+  }
+
+  _handMove(pt) {
+    const d = this._handDrag;
+    if (!d || !pt) return;
+    const dx = pt.clientX - d.x0;
+    const dy = pt.clientY - d.y0;
+    if (!d.moved && Math.hypot(dx, dy) > 10) {
+      d.moved = true;
+      // выбрать карту и показать призрак под пальцем
+      this.selectedCard = d.id;
+      this.root.querySelectorAll('[data-hand]').forEach((e2) => {
+        e2.classList.toggle('active', e2.dataset.hand === d.id);
+      });
+      const c = this.cards().find((x2) => x2.id === d.id);
+      if (this.battleView && c) this.battleView.setPendingCard(c);
+    }
+    if (d.moved && this.battleView) this.battleView.ghostTo(pt.clientX, pt.clientY);
+  }
+
+  _handUp(pt) {
+    const d = this._handDrag;
+    this._handDrag = null;
+    if (!d) return;
+    if (d.moved) {
+      // жест «перетащил на арену» → высадка в точке отпускания
+      const p = this.battleView && pt ? this.battleView.screenToGround(pt.clientX, pt.clientY) : null;
+      if (p) {
+        this._tryDeploy(d.id, p.x, p.y);
+      } else if (this.battleView) {
+        // отпустили мимо арены — отмена
+        this.selectedCard = null;
+        this.battleView.setPendingCard(null);
+        this._renderHand();
+      } else {
+        // без 3D: оставляем карту выбранной — клик по 2D-арене высадит её
+        this._renderHand();
+      }
+    } else {
+      // обычный тап: выбрать/снять выбор
+      this.selectedCard = d.wasSelected ? null : d.id;
+      const c = this.selectedCard ? this.cards().find((x2) => x2.id === this.selectedCard) : null;
+      if (this.battleView) this.battleView.setPendingCard(c || null);
+      this._renderHand();
+    }
+  }
+
+  _bindHandDrag() {
+    const doc = window.document;
+    const move = (ev) => {
+      if (!this._handDrag) return;
+      const t = (ev.touches && ev.touches[0]) || (ev.changedTouches && ev.changedTouches[0]) || ev;
+      if (ev.cancelable) ev.preventDefault();
+      this._handMove(t);
+    };
+    const up = (ev) => {
+      if (!this._handDrag) return;
+      const t = (ev.changedTouches && ev.changedTouches[0]) || (ev.touches && ev.touches[0]) || ev;
+      this._handUp(t);
+    };
+    if (typeof window !== 'undefined' && window.PointerEvent) {
+      doc.addEventListener('pointermove', move);
+      doc.addEventListener('pointerup', up);
+      doc.addEventListener('pointercancel', up);
+    } else {
+      doc.addEventListener('touchmove', move, { passive: false });
+      doc.addEventListener('touchend', up);
+      doc.addEventListener('touchcancel', up);
+      doc.addEventListener('mousemove', move);
+      doc.addEventListener('mouseup', up);
+    }
+    this._handDocHandlers = { move, up };
+  }
+
+  _unbindHandDrag() {
+    if (!this._handDocHandlers) return;
+    const doc = window.document;
+    const { move, up } = this._handDocHandlers;
+    if (typeof window !== 'undefined' && window.PointerEvent) {
+      doc.removeEventListener('pointermove', move);
+      doc.removeEventListener('pointerup', up);
+      doc.removeEventListener('pointercancel', up);
+    } else {
+      doc.removeEventListener('touchmove', move);
+      doc.removeEventListener('touchend', up);
+      doc.removeEventListener('touchcancel', up);
+      doc.removeEventListener('mousemove', move);
+      doc.removeEventListener('mouseup', up);
+    }
+    this._handDocHandlers = null;
+    this._handDrag = null;
   }
 
   _tryDeploy(cardId, x, y) {
     const b = this.battle;
     if (!b || b.finished) return;
-    const c = this.cards().find((x2) => x2.id === cardId);
+    // battleView может передать как id, так и объект карты — нормализуем
+    const id = cardId && typeof cardId === 'object' ? cardId.id : cardId;
+    const c = this.cards().find((x2) => x2.id === id);
     if (!c) return;
     // все карты (включая заклинания) ставятся только на свою половину
     if (!b.canPlaceAt(x, y, 'player')) {
       this.toast('Ставьте карты только на свою половину арены!');
       return;
     }
-    if (!b.canDeploy('player', cardId)) {
+    if (!b.canDeploy('player', id)) {
       this.toast('Не хватает эликсира');
       return;
     }
-    b.deploy(cardId, x, y, 'player');
+    b.deploy(id, x, y, 'player');
     this.sfx.play(c.type === 'spell' ? 'spell' : 'deploy');
     this.selectedCard = null;
     if (this.battleView) {
@@ -944,7 +1073,7 @@ export class App {
       if (ca) ca.textContent = b.crowns.ai;
 
       const sig = b.teams.player.hand.join('|') + '|' + Math.floor(b.teams.player.elixir / 1) + '|' + (this.selectedCard || '');
-      if (sig !== handSignature) {
+      if (sig !== handSignature && !this._handDrag) {
         handSignature = sig;
         this._renderHand();
       }
@@ -1015,6 +1144,7 @@ export class App {
   _stopBattle() {
     if (this.battleRaf) cancelAnimationFrame(this.battleRaf);
     this.battleRaf = 0;
+    this._unbindHandDrag();
     if (this.battleView) {
       this.battleView.dispose();
       this.battleView = null;
