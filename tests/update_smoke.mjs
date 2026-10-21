@@ -10,10 +10,11 @@ global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () =
 const { Battle } = await import('../src/game/engine.js');
 const {
   LEVEL_MAX, levelMultiplier, upgradeCost, leagueFor, nextLeague,
-  cardLevel, scaleCard, rollChest, openChest, normalizeProgress, emptyProgress
+  cardLevel, scaleCard, rollChest, openChest, normalizeProgress, emptyProgress,
+  copiesNeeded, cardCopiesOf, addCardCopies, canUpgrade, applyUpgrade
 } = await import('../src/progress.js');
 const { ReplayRecorder, encodeReplay, decodeReplay, saveReplayToList, REPLAY_LIMIT } = await import('../src/replay.js');
-const { encodeModel, decodeModel } = await import('../src/share.js');
+const { encodeArt, decodeArt } = await import('../src/share.js');
 
 // ——— прогрессия ———
 
@@ -87,12 +88,64 @@ step('лимит реплеев', () => {
   if (list.length !== REPLAY_LIMIT) throw new Error('лимит не работает: ' + list.length);
 });
 
-step('код модели: round trip', () => {
-  const m = { parts: [{ shape: 'wedge', pos: [1, 2, 3], rot: [0, 1, 0], scale: [1, 1, 1], color: '#abc123', emissive: '#000000', tex: 'stripes', opacity: 0.5, anim: 'spin' }] };
-  const back = decodeModel(encodeModel(m));
-  if (!back || back.parts[0].shape !== 'wedge') throw new Error('форма потерялась');
-  if (back.parts[0].tex !== 'stripes' || back.parts[0].anim !== 'spin') throw new Error('текстура/анимация потерялись');
-  if (back.parts[0].opacity !== 0.5) throw new Error('прозрачность потерялась');
+step('код рисунка BA1: round trip', () => {
+  const art = {
+    frames: [[{ c: '#abc123', w: 5, pts: [[1, 2], [30, 40]] }, { shape: 'circle', c: '#fff', x: 10, y: 20, s: 12 }]],
+    anim: { type: 'spin', speed: 1.2, fps: 5 }
+  };
+  const back = decodeArt(encodeArt(art));
+  if (!back || back.frames[0][0].pts.length !== 2) throw new Error('штрихи потерялись');
+  if (back.frames[0][1].shape !== 'circle') throw new Error('штамп потерялся');
+  if (back.anim.type !== 'spin' || back.anim.fps !== 5) throw new Error('анимация потерялась');
+});
+
+// ——— копии карт и апгрейд ———
+
+console.log('— копии карт и апгрейд —');
+step('апгрейд требует копии конкретной карты', () => {
+  const p = normalizeProgress(emptyProgress());
+  p.gold = 100000;
+  const chk = canUpgrade(p, 'knight');
+  if (chk.ok) throw new Error('апгрейд разрешён без копий!');
+  if (chk.needCopies !== copiesNeeded(1)) throw new Error('нужное число копий не совпадает');
+  addCardCopies(p, 'knight', chk.needCopies);
+  if (!canUpgrade(p, 'knight').ok) throw new Error('апгрейд не разрешён с копиями');
+  // копии ДРУГОЙ карты не помогают
+  const p2 = normalizeProgress(emptyProgress());
+  p2.gold = 100000;
+  addCardCopies(p2, 'archers', 999);
+  if (canUpgrade(p2, 'knight').ok) throw new Error('копии чужой карты подошли!');
+});
+
+step('applyUpgrade списывает золото и копии', () => {
+  const p = normalizeProgress(emptyProgress());
+  p.gold = 100000;
+  addCardCopies(p, 'giant', 50);
+  const needGold = upgradeCost(1);
+  const r = applyUpgrade(p, 'giant');
+  if (!r.ok || r.level !== 2) throw new Error('апгрейд не прошёл: ' + (r.error || r.level));
+  if (cardLevel(p, 'giant') !== 2) throw new Error('уровень не вырос');
+  if (p.gold !== 100000 - needGold) throw new Error('золото не списалось');
+  if (cardCopiesOf(p, 'giant') !== 50 - copiesNeeded(1)) throw new Error('копии не списались');
+  // без золота — отказ
+  const poor = normalizeProgress({ gold: 0, cardCopies: { knight: 999 } });
+  const r2 = applyUpgrade(poor, 'knight');
+  if (r2.ok) throw new Error('апгрейд прошёл без золота!');
+});
+
+step('сундук: лут содержит золото и стопки копий', () => {
+  const winChest = rollChest(true);
+  const rew = openChest(winChest, [{ id: 'knight', rarity: 'common' }, { id: 'phoenix_reborn', rarity: 'legendary' }]);
+  if (!rew.items.length) throw new Error('items пустые');
+  const goldItem = rew.items.find((i) => i.kind === 'gold');
+  const cardItems = rew.items.filter((i) => i.kind === 'cards');
+  if (!goldItem || goldItem.amount <= 0) throw new Error('золота в луте нет');
+  if (!cardItems.length) throw new Error('карт в луте нет');
+  const total = cardItems.reduce((s, i) => s + i.count, 0);
+  if (total < 1) throw new Error('копии не начислены');
+  const p = normalizeProgress(emptyProgress());
+  for (const it of cardItems) addCardCopies(p, it.cardId, it.count);
+  if (!Object.values(p.cardCopies).some((n) => n > 0)) throw new Error('копии не попали в прогресс');
 });
 
 // ——— новые абилки в движке ———

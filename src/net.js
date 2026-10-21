@@ -244,7 +244,7 @@ export function applyIntentToBattle(battle, msg, cardsById) {
   if (!msg || msg.t !== 'intent' || !battle || battle.finished) return false;
   const c = cardsById.get(msg.cardId);
   if (!c) return false;
-  if (!battle.canPlaceAt(msg.x, msg.y, 'ai')) return false;
+  if (!battle.canPlaceAt(msg.x, msg.y, 'ai', c)) return false;
   if (!battle.canDeploy('ai', msg.cardId)) return false;
   battle.deploy(msg.cardId, msg.x, msg.y, 'ai');
   return true;
@@ -404,9 +404,10 @@ export class RemoteBattle {
     return out;
   }
 
-  canPlaceAt(x, y, team) {
+  canPlaceAt(x, y, team, card) {
     if (Math.abs(x) > ARENA.halfW - 0.2) return false;
     if (Math.abs(y) > ARENA.halfH - 0.2) return false;
+    if (card && card.type === 'spell') return true;
     const sideOk = team === 'player' ? y <= -ARENA.riverY : y >= ARENA.riverY;
     return sideOk;
   }

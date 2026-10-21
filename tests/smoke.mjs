@@ -105,6 +105,21 @@ const cu = b3.deploy('custom_test', 0, -4, 'player');
 check('кастомная карта с щитом', cu && cu.shieldHp === 300);
 b3.update(0.05);
 
+// новые правила: заклинания на любую половину, спящая главная башня
+const b4 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+check('заклинание можно кидать на вражескую половину', b4.canPlaceAt(0, 8, 'player', getCard('fireball')));
+check('войско нельзя ставить на вражескую половину', !b4.canPlaceAt(0, 8, 'player', getCard('knight')));
+check('войско можно на свою половину', b4.canPlaceAt(0, -8, 'player', getCard('knight')));
+check('главные башни спят на старте', b4.towers.filter((t) => t.kind === 'king').every((t) => !t.activated));
+const kingAi = b4.towers.find((t) => t.kind === 'king' && t.team === 'ai');
+const leftAi = b4.towers.find((t) => t.kind === 'left' && t.team === 'ai');
+leftAi.hp = 0;
+b4._kill(leftAi, null);
+check('гибель боковой будит главную', kingAi.activated === true);
+const kingP = b4.towers.find((t) => t.kind === 'king' && t.team === 'player');
+b4._damage(kingP, 10, {});
+check('урон по главной будит её', kingP.activated === true);
+
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);
   process.exit(1);

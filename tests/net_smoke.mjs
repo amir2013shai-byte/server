@@ -170,10 +170,16 @@ step('RemoteBattle: снапшот, команды, координаты', () =>
 
 step('RemoteBattle: canPlaceAt повторяет правила арены', () => {
   const rb = new RemoteBattle({});
-  if (!rb.canPlaceAt(0, -8, 'player')) throw new Error('своя половина не принимается');
-  if (rb.canPlaceAt(0, 8, 'player')) throw new Error('вражеская половина принимается');
-  if (!rb.canPlaceAt(0, 8, 'ai')) throw new Error('ai-половина не принимается');
-  if (rb.canPlaceAt(20, -8, 'player')) throw new Error('вне арены принимается');
+  const troop = { type: 'troop' };
+  const spell = { type: 'spell' };
+  if (!rb.canPlaceAt(0, -8, 'player', troop)) throw new Error('своя половина не принимается');
+  if (rb.canPlaceAt(0, 8, 'player', troop)) throw new Error('вражеская половина принимается');
+  if (!rb.canPlaceAt(0, 8, 'ai', troop)) throw new Error('ai-половина не принимается');
+  if (rb.canPlaceAt(20, -8, 'player', troop)) throw new Error('вне арены принимается');
+  // заклинания — на любую половину
+  if (!rb.canPlaceAt(0, 8, 'player', spell)) throw new Error('заклинание на вражеской половине отклонено');
+  if (!rb.canPlaceAt(0, -8, 'player', spell)) throw new Error('заклинание на своей половине отклонено');
+  if (rb.canPlaceAt(20, 8, 'player', spell)) throw new Error('заклинание вне арены принято');
 });
 
 step('RemoteBattle: разрядка событий', () => {

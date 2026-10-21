@@ -71,6 +71,7 @@ export const accounts = {
       this._state.users = this._state.users || {};
       this._state.clans = this._state.clans || {};
       this._state.balance = mergeBalance(this._state.balance);
+      this._state.globalCards = Array.isArray(this._state.globalCards) ? this._state.globalCards : [];
       this._ensureAdmin();
     }
     return this._state;
@@ -318,6 +319,37 @@ export const accounts = {
     this._s().balance = mergeBalance(params);
     this._flush();
     return this._s().balance;
+  },
+
+  // ————— глобальные карты (для всех игроков, добавляет админ) —————
+
+  globalCards() {
+    return (this._s().globalCards || []).slice();
+  },
+
+  addGlobalCard(card) {
+    const u = this.current();
+    if (!u || !u.isAdmin) return { ok: false, error: 'Только админ может добавлять карты для всех' };
+    if (!card || typeof card !== 'object' || !card.id || !card.name) return { ok: false, error: 'Некорректная карта' };
+    const s = this._s();
+    const clean = JSON.parse(JSON.stringify(card));
+    clean.global = true;
+    const idx = s.globalCards.findIndex((c) => c.id === clean.id);
+    if (idx >= 0) s.globalCards[idx] = clean;
+    else s.globalCards.push(clean);
+    if (s.globalCards.length > 200) s.globalCards = s.globalCards.slice(-200);
+    this._flush();
+    return { ok: true, card: clean };
+  },
+
+  removeGlobalCard(id) {
+    const u = this.current();
+    if (!u || !u.isAdmin) return { ok: false, error: 'Только админ может удалять глобальные карты' };
+    const s = this._s();
+    const before = s.globalCards.length;
+    s.globalCards = s.globalCards.filter((c) => c.id !== id);
+    this._flush();
+    return { ok: s.globalCards.length < before };
   },
 
   // ————— друзья —————

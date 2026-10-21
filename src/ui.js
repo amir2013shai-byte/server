@@ -3,17 +3,19 @@ import { storage } from './storage.js';
 import { ALL_CARDS, COLLECTION_IDS, RARITY, getCard, withCustom } from './data/cards.js';
 import { cardBalance, DEFAULT_BALANCE } from './data/balance.js';
 import { accounts } from './accounts.js';
-import { encodeCard, decodeCard, copyText } from './share.js';
+import { encodeCard, decodeCard, copyText, sanitizeArt } from './share.js';
 import {
   LEVEL_MAX, levelMultiplier, upgradeCost, LEAGUES, leagueFor, nextLeague,
   currentSeasonId, seasonDaysLeft, seasonReward,
-  normalizeProgress, cardLevel, scaleCard, rollChest, openChest
+  normalizeProgress, cardLevel, scaleCard, rollChest, openChest,
+  copiesNeeded, cardCopiesOf, addCardCopies, canUpgrade, applyUpgrade
 } from './progress.js';
 import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
-import { ModelEditor } from './render/modelEditor.js';
+import { ArtEditor } from './render/artEditor.js';
+import { baseSprite, clearSpriteCache, emptyArt } from './render/art2d.js';
 import { NetClient, RemoteBattle, buildHostSnapshot, applyIntentToBattle } from './net.js';
 
 const DEFAULT_NET_URL = 'https://8787-i3gumlij2i0jlute17dom.e2b.app';
@@ -102,7 +104,7 @@ export class App {
     this.battleView = null;
     this.battleRaf = 0;
     this.battleMode = 'normal';
-    this.allCards = withCustom(this.customCards);
+    this.allCards = withCustom([...accounts.globalCards(), ...this.customCards]);
     this.balanceParams = accounts.getBalance();
     this.progress = accounts.ensureGuest(this.deck, this.customCards);
     this.replays = this._loadReplays();
@@ -132,7 +134,8 @@ export class App {
   }
 
   cards() {
-    this.allCards = withCustom(this.customCards);
+    // база + глобальные карты (для всех, добавляет админ) + личные
+    this.allCards = withCustom([...accounts.globalCards(), ...this.customCards]);
     return this.allCards;
   }
 
@@ -141,7 +144,13 @@ export class App {
   _persist() {
     storage.setDeck(this.deck);
     storage.setCustomCards(this.customCards);
-    this.progress = accounts.saveProgress(this.progress);
+    const saved = accounts.saveProgress(this.progress);
+    // сохраняем ИДЕНТИЧНОСТЬ объекта прогресса: экраны держат на него ссылки
+    if (saved && this.progress && saved !== this.progress && typeof saved === 'object') {
+      for (const k of Object.keys(saved)) this.progress[k] = saved[k];
+    } else {
+      this.progress = saved;
+    }
     accounts.saveActive(this.deck, this.customCards, this.progress);
   }
 
@@ -209,6 +218,18 @@ export class App {
   }
 
   cardIconHtml(card) {
+    // рисунок карты (или спрайт из модели) → превью; иначе буква
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 72;
+      const ctx = c.getContext && c.getContext('2d');
+      if (ctx) {
+        const spr = baseSprite(card, 72);
+        ctx.drawImage(spr, 0, 0);
+        const url = c.toDataURL('image/png');
+        return `<div class="card-icon card-icon-art"><img src="${url}" alt="${escapeHtml(card.name || '')}"></div>`;
+      }
+    } catch { /* без canvas — буква */ }
     const letter = (card.name || '?').trim().charAt(0).toUpperCase();
     return `<div class="card-icon">${letter}<span style="position:absolute;margin:26px 0 0 26px;font-size:12px">${TYPE_ICONS[card.type] || ''}</span></div>`;
   }
@@ -225,7 +246,7 @@ export class App {
           <div class="menu-hero">
             <div class="menu-logo">👑⚔️</div>
             <div class="menu-title">Королевские Схватки</div>
-            <div class="menu-sub">3D-битвы • Свои карты • Редактор моделей</div>
+            <div class="menu-sub">Битвы • Свои карты • Рисунок и анимация карт</div>
           </div>
           <button class="account-bar" id="m-account">
             ${user
@@ -401,7 +422,6 @@ export class App {
 
   showProgress() {
     const p = this.progress;
-    const cardPool = this.cards().filter((c) => !c.hidden).map((c) => c.id);
     const render = () => {
       const list = this.cards().filter((c) => !c.hidden);
       this.setScreen(`
@@ -417,25 +437,24 @@ export class App {
             <div class="form-section">
               <h3>Сундуки (до 4)</h3>
               ${p.chests.length ? `<div class="row wrap">${p.chests.map((c, i) => `
-                  <button class="btn btn-chip" data-chest="${i}" style="padding:10px 14px">
+                  <button class="btn btn-chip chest-btn" data-chest="${i}" style="padding:10px 14px">
                     ${c.icon || '📦'} Открыть
                   </button>`).join('')}</div>`
                 : '<div class="muted">Сундуков нет. Выигрывайте бои — сундуки падают за победы!</div>'}
             </div>
             <div class="form-section">
               <h3>Уровни карт</h3>
-              <div class="muted mb12">Уровень повышает HP и урон карте (×${levelMultiplier(2).toFixed(2)} за уровень). Золото тратится на апгрейд.</div>
+              <div class="muted mb12">Для апгрейда нужны <b>золото</b> и <b>копии именно этой карты</b> (копии падают из сундуков). Уровень повышает HP и урон (×${levelMultiplier(2).toFixed(2)} за уровень).</div>
               ${list.map((c) => {
-                const lvl = cardLevel(p, c.id);
-                const cost = upgradeCost(lvl);
+                const chk = canUpgrade(p, c.id);
                 return `
                 <div class="friend-row">
                   <div style="flex:1">
                     <b>${escapeHtml(c.name)}</b>
-                    <div class="muted" style="font-size:11px">ур. <b>${lvl}</b>/${LEVEL_MAX} • HP ×${levelMultiplier(lvl).toFixed(2)}</div>
+                    <div class="muted" style="font-size:11px">ур. <b>${chk.level}</b>/${LEVEL_MAX} • копии: <b style="color:${chk.haveCopies >= chk.needCopies ? '#7dff9e' : '#ff9c9c'}">${chk.haveCopies}</b>/${chk.needCopies} • ${chk.needGold} 💰</div>
                   </div>
-                  ${lvl < LEVEL_MAX
-                    ? `<button class="btn btn-chip" data-up="${c.id}">⬆ ${cost} 💰</button>`
+                  ${!chk.max
+                    ? `<button class="btn btn-chip" data-up="${c.id}" ${chk.ok ? '' : 'style="opacity:0.55"'}>⬆ Улучшить</button>`
                     : '<span style="color:#f0d890">МАКС</span>'}
                 </div>`;
               }).join('')}
@@ -449,40 +468,112 @@ export class App {
           const i = parseInt(el.dataset.chest, 10);
           const chest = p.chests[i];
           if (!chest) return;
-          const rew = openChest(chest, cardPool);
           p.chests.splice(i, 1);
-          p.gold += rew.gold;
-          for (const id of rew.cards) {
-            const lvl = cardLevel(p, id);
-            if (lvl < LEVEL_MAX && Math.random() < 0.5) p.cardLevels[id] = lvl + 1; // копия карты ≈ шанс уровня
-          }
           this._persist();
-          this.confirmModal(`${rew.icon} ${rew.name}`, `Золото: +${rew.gold} 💰<br>Карты: ${rew.cards.map((id) => {
-            const c = this.cards().find((x) => x.id === id);
-            return escapeHtml(c ? c.name : id);
-          }).join(', ') || '—'}`, [{ label: 'Отлично!', value: true, primary: true }]).then(() => render());
+          this.showChestOpening(chest, () => render());
         };
       });
       this.root.querySelectorAll('[data-up]').forEach((el) => {
         el.onclick = () => {
           const id = el.dataset.up;
-          const lvl = cardLevel(p, id);
-          const cost = upgradeCost(lvl);
-          if (lvl >= LEVEL_MAX) return;
-          if (p.gold < cost) {
-            this.toast('Не хватает золота');
+          const r = applyUpgrade(p, id);
+          if (!r.ok) {
+            this.toast(r.error);
             return;
           }
-          p.gold -= cost;
-          p.cardLevels[id] = lvl + 1;
           this._persist();
           this.sfx.play('win');
-          this.toast(`Карта теперь ${lvl + 1} уровня!`);
+          const c = this.cards().find((x) => x.id === id);
+          this.toast(`${c ? c.name : id}: уровень ${r.level}!`);
           render();
         };
       });
     };
     render();
+  }
+
+  // красивое поэтапное вскрытие сундука: лут выпадает карточками с сиянием редкости
+  showChestOpening(chest, onClose) {
+    const p = this.progress;
+    const cardPool = this.cards().filter((c) => !c.hidden).map((c) => ({ id: c.id, rarity: c.rarity }));
+    const rew = openChest(chest, cardPool);
+    const RARITY_GLOW = {
+      common: '#b8c0cc', rare: '#f0a13c', epic: '#c26bf2', legendary: '#49d9ff'
+    };
+
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `
+      <div class="modal chest-modal">
+        <div class="chest-stage" id="chest-stage">
+          <div class="chest-big" id="chest-big">${chest.icon || '📦'}</div>
+          <div class="chest-hint" id="chest-hint">Нажмите, чтобы открыть!</div>
+        </div>
+        <div class="chest-loot" id="chest-loot"></div>
+        <button class="btn btn-primary" id="chest-done" style="display:none">Отлично!</button>
+      </div>`;
+
+    const stage = ov.querySelector('#chest-stage');
+    const big = ov.querySelector('#chest-big');
+    const loot = ov.querySelector('#chest-loot');
+    const doneBtn = ov.querySelector('#chest-done');
+    let opened = false;
+    let idx = 0;
+
+    const revealNext = () => {
+      if (idx >= rew.items.length) {
+        doneBtn.style.display = '';
+        return;
+      }
+      const item = rew.items[idx++];
+      const div = document.createElement('div');
+      if (item.kind === 'gold') {
+        div.className = 'loot-item loot-gold';
+        div.innerHTML = `<span class="loot-icon">💰</span><div><b>+${item.amount} золота</b><div class="muted" style="font-size:11px">на прокачку карт</div></div>`;
+      } else {
+        const c = this.cards().find((x) => x.id === item.cardId);
+        const glow = RARITY_GLOW[item.rarity] || RARITY_GLOW.common;
+        div.className = 'loot-item loot-card';
+        div.style.borderColor = glow;
+        div.style.boxShadow = `0 0 18px ${glow}55`;
+        div.innerHTML = `
+          <div class="card-tile rarity-${item.rarity}" style="width:58px">
+            <div class="card-cost">${c ? c.cost : '?'}</div>
+            ${c ? this.cardIconHtml(c) : ''}
+          </div>
+          <div>
+            <b>${escapeHtml(c ? c.name : item.cardId)}</b>
+            <div style="font-size:12px;color:${glow}">+${item.count} копий</div>
+            <div class="muted" style="font-size:10px">${RARITY[item.rarity]?.label || item.rarity}</div>
+          </div>`;
+      }
+      loot.appendChild(div);
+      div.scrollIntoView && div.scrollIntoView({ block: 'nearest' });
+      this.sfx.play(item.kind === 'gold' ? 'win' : 'ui');
+      setTimeout(revealNext, item.kind === 'gold' ? 550 : 750);
+    };
+
+    const open = () => {
+      if (opened) return;
+      opened = true;
+      big.classList.add('chest-open');
+      this.sfx.play('boom');
+      ov.querySelector('#chest-hint').style.display = 'none';
+      // начисляем лут
+      p.gold += rew.gold;
+      for (const item of rew.items) {
+        if (item.kind === 'cards') addCardCopies(p, item.cardId, item.count);
+      }
+      this._persist();
+      setTimeout(revealNext, 450);
+    };
+
+    stage.onclick = open;
+    doneBtn.onclick = () => {
+      ov.remove();
+      if (onClose) onClose();
+    };
+    document.body.appendChild(ov);
   }
 
   // ————— рейтинг, лиги, сезоны —————
@@ -649,8 +740,8 @@ export class App {
         this.battleView = new BattleView(canvasHost, battle, { team: 'player', onDeployRequest: () => {} });
         this.battleView.resize();
       } catch (e) {
-        console.error('3D недоступно:', e);
-        canvasHost.innerHTML = '<div style="padding:30px;text-align:center">3D недоступен — реплей не воспроизвести</div>';
+        console.error('Арена недоступна:', e);
+        canvasHost.innerHTML = '<div style="padding:30px;text-align:center">Арена недоступна — реплей не воспроизвести</div>';
       }
     });
     this.root.querySelector('#b-pause').onclick = () => this.showReplays();
@@ -1068,17 +1159,17 @@ export class App {
           </div>`;
         })()}
         ${(() => {
-          const lvl = cardLevel(this.progress, c.id);
-          const cost = upgradeCost(lvl);
+          const chk = canUpgrade(this.progress, c.id);
           return `<div class="mt12" style="font-size:12px">
-            <b style="color:#f0d890">Уровень:</b> <b>${lvl}</b>/${LEVEL_MAX} • HP/урон ×${levelMultiplier(lvl).toFixed(2)}
-            ${lvl < LEVEL_MAX ? ` • апгрейд: <b>${cost} 💰</b>` : ' • <b style="color:#f0d890">МАКС</b>'}
+            <b style="color:#f0d890">Уровень:</b> <b>${chk.level}</b>/${LEVEL_MAX} • HP/урон ×${levelMultiplier(chk.level).toFixed(2)}
+            ${chk.max ? ' • <b style="color:#f0d890">МАКС</b>'
+              : `<br>Апгрейд: <b>${chk.needGold} 💰</b> + копии карты: <b style="color:${chk.haveCopies >= chk.needCopies ? '#7dff9e' : '#ff9c9c'}">${chk.haveCopies}/${chk.needCopies}</b>`}
           </div>`;
         })()}
         ${abilities.length ? `<div class="mt12"><b style="color:#f0d890">Абилки:</b> ${abilities.join(', ')}</div>` : ''}
         <div class="row mt16" style="flex-wrap:wrap">
           <button class="btn btn-primary" data-a="deck">${this.deck.includes(c.id) ? 'Убрать из колоды' : 'В колоду'}</button>
-          ${cardLevel(this.progress, c.id) < LEVEL_MAX ? '<button class="btn btn-chip" data-a="upgrade">⬆ Прокачать</button>' : ''}
+          ${canUpgrade(this.progress, c.id).max ? '' : '<button class="btn btn-chip" data-a="upgrade">⬆ Прокачать</button>'}
           <button class="btn btn-blue" data-a="share">🔗 Поделиться</button>
           <button class="btn btn-ghost" data-a="close">Закрыть</button>
         </div>
@@ -1092,17 +1183,14 @@ export class App {
         return;
       }
       if (b.dataset.a === 'upgrade') {
-        const lvl = cardLevel(this.progress, c.id);
-        const cost = upgradeCost(lvl);
-        if (this.progress.gold < cost) {
-          this.toast('Не хватает золота');
+        const r = applyUpgrade(this.progress, c.id);
+        if (!r.ok) {
+          this.toast(r.error);
           return;
         }
-        this.progress.gold -= cost;
-        this.progress.cardLevels[c.id] = lvl + 1;
         this._persist();
         this.sfx.play('win');
-        this.toast(`${c.name}: уровень ${lvl + 1}!`);
+        this.toast(`${c.name}: уровень ${r.level}!`);
         ov.remove();
         this.showCardDetail(c.id);
         return;
@@ -1239,7 +1327,7 @@ export class App {
           <button class="btn btn-primary" id="new">＋ Новая</button>
         </div>
         <div class="screen-scroll">
-          <div class="muted mb12">Нажмите на карту, чтобы изменить характеристики, абилки и 3D-модель. Пользовательские карты помечены ✏️.</div>
+          <div class="muted mb12">Нажмите на карту, чтобы изменить характеристики, абилки и рисунок карты. Пользовательские карты помечены ✏️.</div>
           <div class="cards-grid">
             ${list.map((c) => `
               <div class="card-tile rarity-${c.rarity}" data-edit="${c.id}">
@@ -1262,7 +1350,8 @@ export class App {
 
   // ————— редактор карты —————
 
-  showCardEditor(cardId, draftOverride = null) {
+  showCardEditor(cardId, draftOverride = null, opts = {}) {
+    const globalTarget = !!opts.global; // админ: сохранить карту ДЛЯ ВСЕХ
     const source = cardId ? this.cards().find((c) => c.id === cardId) : null;
     let draft;
     if (draftOverride) {
@@ -1287,6 +1376,7 @@ export class App {
           targets: 'ground', flying: false, buildingOnly: false, splash: 0, sight: 5.5,
           abilities: [], spell: null, building: null, hidden: false,
           custom: true,
+          art: null,
           model: { parts: [{ shape: 'box', pos: [0, 0.85, 0], rot: [0, 0, 0], scale: [0.62, 0.62, 0.36], color: '#3b6fd4', emissive: '#000000' }, { shape: 'sphere', pos: [0, 1.32, 0], rot: [0, 0, 0], scale: [0.34, 0.36, 0.34], color: '#e8b88a', emissive: '#000000' }] }
       };
     }
@@ -1398,9 +1488,9 @@ export class App {
             </div>
 
             <div class="form-section">
-              <h3>3D-модель</h3>
-              <div class="muted mb12">Простой редактор моделей: примитивы, цвета, размеры и повороты.</div>
-              <button class="btn btn-blue btn-block" id="open-model">🧊 Открыть 3D-редактор</button>
+              <h3>Рисунок карты</h3>
+              <div class="muted mb12">Нарисуйте карту сами — кисть, цвета, штампы — и оживите её анимацией (кадры, покачивание, пульс…).</div>
+              <button class="btn btn-blue btn-block" id="open-model">🎨 Открыть редактор рисунка</button>
               <button class="btn btn-ghost btn-block" id="share-card" style="margin-top:8px">🔗 Поделиться картой</button>
             </div>
 
@@ -1421,8 +1511,9 @@ export class App {
       this.root.querySelector('#save2').onclick = () => save();
       this.root.querySelector('#open-model').onclick = () => {
         collect();
-        this.showModelEditorScreen(draft, (m) => {
-          draft.model = m;
+        this.showArtEditorScreen(draft, (art) => {
+          draft.art = art;
+          clearSpriteCache();
           this.showCardEditor(null, draft);
         });
       };
@@ -1536,6 +1627,19 @@ export class App {
         collect();
         if (!draft.name.trim()) draft.name = 'Новая карта';
         draft.custom = true;
+        if (globalTarget) {
+          // админ публикует карту для ВСЕХ игроков устройства
+          const r = accounts.addGlobalCard(draft);
+          if (!r.ok) {
+            this.toast(r.error || 'Не удалось сохранить глобальную карту');
+            return;
+          }
+          clearSpriteCache();
+          this.cards();
+          this.toast(`Карта «${draft.name}» теперь доступна ВСЕМ игрокам!`);
+          this.showAdmin();
+          return;
+        }
         const idx = this.customCards.findIndex((c) => c.id === draft.id);
         if (idx >= 0) this.customCards[idx] = draft;
         else this.customCards.push(draft);
@@ -1928,6 +2032,28 @@ export class App {
             <div class="info-list">Дисбалансных карт в базе: <b style="color:${badCount ? '#ff9c9c' : '#7dff9e'}">${badCount} из ${roster.length}</b></div>
             <button class="btn btn-ghost btn-block" id="p-reset" style="margin-top:10px">Вернуть значения по умолчанию</button>
           </div>
+          <div class="form-section">
+            <h3>🌍 Карты для всех игроков</h3>
+            <div class="muted mb12">Эти карты видят и могут использовать ВСЕ аккаунты и гости на этом устройстве.</div>
+            ${(() => {
+              const g = accounts.globalCards();
+              return g.length
+                ? g.map((c) => `
+                  <div class="friend-row">
+                    <div style="flex:1">
+                      <b>${escapeHtml(c.name)}</b>
+                      <div class="muted" style="font-size:11px">${RARITY[c.rarity]?.label || c.rarity} • ${TYPE_LABELS[c.type] || c.type} • ${c.cost} эликсира</div>
+                    </div>
+                    <button class="btn btn-chip danger" data-gdel="${c.id}">🗑</button>
+                  </div>`).join('')
+                : '<div class="muted">Глобальных карт пока нет.</div>';
+            })()}
+            <div class="row wrap" style="margin-top:10px">
+              <button class="btn btn-primary" id="g-create">➕ Создать для всех</button>
+              <button class="btn btn-blue" id="g-import">📥 Импорт по коду</button>
+              <button class="btn btn-ghost" id="g-publish">📢 Опубликовать мою</button>
+            </div>
+          </div>
           <button class="btn btn-primary btn-block btn-big" id="p-save" style="margin:10px 0 30px">💾 Сохранить баланс</button>
         </div>
       </div>
@@ -1956,36 +2082,98 @@ export class App {
       this.toast('Баланс сохранён');
       this.showAdmin();
     };
+
+    // ——— глобальные карты ———
+    this.root.querySelectorAll('[data-gdel]').forEach((el) => {
+      el.onclick = async () => {
+        const ok = await this.confirmModal('Удалить глобальную карту?', 'Карта пропадёт у всех игроков.', [
+          { label: 'Удалить', value: true, primary: true },
+          { label: 'Отмена', value: false }
+        ]);
+        if (!ok) return;
+        const r = accounts.removeGlobalCard(el.dataset.gdel);
+        if (r.ok) {
+          clearSpriteCache();
+          this.toast('Глобальная карта удалена');
+          this.showAdmin();
+        }
+      };
+    });
+    const gCreate = this.root.querySelector('#g-create');
+    if (gCreate) gCreate.onclick = () => this.showCardEditor(null, null, { global: true });
+    const gImport = this.root.querySelector('#g-import');
+    if (gImport) gImport.onclick = async () => {
+      let code = '';
+      try {
+        code = (window.prompt || prompt)('Вставьте код карты BC1.…', '');
+      } catch { return; }
+      if (!code) return;
+      const card = decodeCard(code);
+      if (!card) {
+        this.toast('Код карты не распознан');
+        return;
+      }
+      const r = accounts.addGlobalCard(card);
+      this.toast(r.ok ? `Карта «${card.name}» добавлена для всех!` : (r.error || 'Ошибка'));
+      if (r.ok) {
+        clearSpriteCache();
+        this.showAdmin();
+      }
+    };
+    const gPublish = this.root.querySelector('#g-publish');
+    if (gPublish) gPublish.onclick = () => {
+      const mine = this.customCards;
+      if (!mine.length) {
+        this.toast('У вас нет своих карт — создайте в редакторе');
+        return;
+      }
+      const list = mine.map((c, i) => `${i + 1}. ${c.name}`).join('\n');
+      let ans = '';
+      try {
+        ans = (window.prompt || prompt)(`Опубликовать карту для всех:\n${list}\n\nВведите номер:`, '1');
+      } catch { return; }
+      const idx = parseInt(ans, 10) - 1;
+      const src = mine[idx];
+      if (!src) return;
+      const clone = JSON.parse(JSON.stringify(src));
+      clone.id = 'global_' + Date.now();
+      const r = accounts.addGlobalCard(clone);
+      this.toast(r.ok ? `«${clone.name}» доступна всем игрокам!` : (r.error || 'Ошибка'));
+      if (r.ok) {
+        clearSpriteCache();
+        this.showAdmin();
+      }
+    };
   }
 
-  // ————— 3D-редактор —————
+  // ————— редактор рисунка карты —————
 
-  showModelEditorScreen(cardDraft, onDone) {
+  showArtEditorScreen(cardDraft, onDone) {
     this.setScreen(`
       <div class="screen" style="padding:0">
         <div class="top-bar">
           <button class="btn btn-ghost" id="back">←</button>
           <div>
-            <div class="top-title">3D-редактор модели</div>
-            <div class="top-sub">${escapeHtml(cardDraft.name)}</div>
+            <div class="top-title">🎨 Рисунок карты</div>
+            <div class="top-sub">${escapeHtml(cardDraft.name)} — нарисуйте и анимируйте</div>
           </div>
         </div>
         <div id="me-host" style="flex:1;min-height:0"></div>
       </div>
     `);
     const host = this.root.querySelector('#me-host');
-    const editor = new ModelEditor(host, cardDraft.model, {
-      onSave: (m) => {
+    const editor = new ArtEditor(host, cardDraft.art || emptyArt(), {
+      onSave: (art) => {
         editor.dispose();
-        onDone(m);
+        onDone(art);
       },
       toast: (m) => this.toast(m)
     });
     this.root.querySelector('#back').onclick = () => {
       editor.dispose();
-      onDone(cardDraft.model);
+      onDone(cardDraft.art || emptyArt());
     };
-    this._activeModelEditor = editor;
+    this._activeArtEditor = editor;
   }
 
   // ————— настройки —————
@@ -2023,12 +2211,13 @@ export class App {
           <div class="form-section">
             <h3>О игре</h3>
             <div class="info-list">
-              <b>Королевские Схватки</b> — 3D карточные бои в реальном времени.
+              <b>Королевские Схватки</b> — карточные бои в реальном времени.
               <br><br>• Полный ростер карт-архетипов<br>
               • Конструктор собственных карт<br>
               • Настройка абилок<br>
-              • Встроенный 3D-редактор моделей<br>
-              • Упаковка в APK через Capacitor (см. APK_BUILD.md)
+              • Рисование карт от руки + анимация<br>
+              • Сетевой бой 1×1 по коду комнаты<br>
+              • Упаковка в APK (см. APK_BUILD.md)
             </div>
           </div>
         </div>
@@ -2142,7 +2331,7 @@ export class App {
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
           </div>
           <div class="hand-row" id="b-hand"></div>
-          <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену или тапните карту → тапните свою половину</div>
+          <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену: войска — на свою половину, заклинания — куда угодно</div>
         </div>
       </div>
     `);
@@ -2186,11 +2375,11 @@ export class App {
         });
         this.battleView.resize();
       } catch (e) {
-        console.error('3D недоступно:', e);
+        console.error('Арена недоступна:', e);
         canvasHost.innerHTML = `
           <div class="fallback-wrap">
             <div style="font-size:34px">🎮</div>
-            <div style="font-size:14px;font-weight:700">3D-режим недоступен — упрощённая арена</div>
+            <div style="font-size:14px;font-weight:700">Арена недоступна — упрощённый режим</div>
             <div class="fallback-arena" id="b-farena">
               <div class="fa-half fa-enemy">⚔️ Вражеская половина</div>
               <div class="fa-half fa-own">🛡️ Своя половина — нажмите, чтобы поставить карту</div>
@@ -2202,12 +2391,17 @@ export class App {
             halfEl.addEventListener('click', (ev) => {
               if (!this.selectedCard) { this.toast('Сначала выберите карту внизу'); return; }
               const own = halfEl.classList.contains('fa-own');
-              if (!own) { this.toast('Ставьте карты только на свою половину арены!'); return; }
+              const card = this.cards().find((x2) => x2.id === this.selectedCard);
+              if (!own && !(card && card.type === 'spell')) {
+                this.toast('Войска ставьте на свою половину! (заклинания — куда угодно)');
+                return;
+              }
               const r = halfEl.getBoundingClientRect();
               const fx = Math.min(1, Math.max(0, (ev.clientX - r.left) / (r.width || 1)));
               const fy = Math.min(1, Math.max(0, (ev.clientY - r.top) / (r.height || 1)));
               const x = -8.5 + fx * 17;
-              const y = -15.5 + fy * 14; // своя половина: от -15.5 (низ) до -1.5 (у реки)
+              // обе половины кликабельны (для заклинаний); своя: y∈[-15.5,-1.5], вражеская: y∈[1.5,15.5]
+              const y = own ? (-15.5 + fy * 14) : (1.5 + fy * 14);
               this._tryDeploy(this.selectedCard, x, y);
             });
           });
@@ -2312,7 +2506,7 @@ export class App {
         this.battleView.setPendingCard(null);
         this._renderHand();
       } else {
-        // без 3D: оставляем карту выбранной — клик по 2D-арене высадит её
+        // без вида арены: оставляем карту выбранной — клик по арене высадит её
         this._renderHand();
       }
     } else {
@@ -2377,9 +2571,11 @@ export class App {
     const id = cardId && typeof cardId === 'object' ? cardId.id : cardId;
     const c = this.cards().find((x2) => x2.id === id);
     if (!c) return;
-    // все карты (включая заклинания) ставятся только на свою половину
-    if (!b.canPlaceAt(x, y, 'player')) {
-      this.toast('Ставьте карты только на свою половину арены!');
+    // войска и здания — только на свою половину; заклинания — на любую точку арены
+    if (!b.canPlaceAt(x, y, 'player', c)) {
+      this.toast(c.type === 'spell'
+        ? 'Заклинание можно бросить только на арену!'
+        : 'Ставьте войска на свою половину арены!');
       return;
     }
     if (!b.canDeploy('player', id)) {
@@ -2432,7 +2628,7 @@ export class App {
         try {
           this.battleView.update(dt, events);
         } catch (e) {
-          console.error('3D-ошибка, отключаю вид:', e);
+          console.error('Ошибка арены, отключаю вид:', e);
           try { this.battleView.dispose(); } catch { /* ignore */ }
           this.battleView = null;
         }
@@ -2515,10 +2711,14 @@ export class App {
       const gold = res.winner === 'player' ? 25 : res.winner === 'draw' ? 15 : 10;
       p.gold += gold;
       rewardLine += `<br>Золото: +${gold} 💰`;
-      if ((res.winner === 'player' || Math.random() < 0.4) && p.chests.length < 4) {
+      // сундуки НЕ падают в дружеском бою и в реплеях
+      const chestOk = this.battleMode !== 'friendly' && this.battleMode !== 'replay';
+      if (chestOk && (res.winner === 'player' || Math.random() < 0.4) && p.chests.length < 4) {
         const chest = rollChest(res.winner === 'player');
         p.chests.push(chest);
         rewardLine += `<br>${chest.icon} ${chest.name} — в «Прокачке»!`;
+      } else if (this.battleMode === 'friendly') {
+        rewardLine += '<br><span class="muted">В дружеском бою сундуки не выпадают</span>';
       }
       accounts.addClanActivity(res.winner === 'player', b.crowns ? b.crowns.player : 0);
     }
@@ -2616,8 +2816,8 @@ export class App {
       this.battleView.dispose();
       this.battleView = null;
     }
-    if (this._activeModelEditor) {
-      this._activeModelEditor = null;
+    if (this._activeArtEditor) {
+      this._activeArtEditor = null;
     }
     this.battle = null;
     this._resultShown = false;
@@ -2657,6 +2857,7 @@ function sanitizeCards(list) {
       abilities: Array.isArray(c.abilities) ? c.abilities.filter((a) => a && ABILITY_DEFS[a.type]) : [],
       spell: c.spell && typeof c.spell === 'object' ? c.spell : null,
       building: c.building && typeof c.building === 'object' ? c.building : null,
+      art: c.art ? sanitizeArt(c.art) : null,
       model: c.model && Array.isArray(c.model.parts) && c.model.parts.length
         ? c.model
         : { parts: [{ shape: 'box', pos: [0, 0.85, 0], rot: [0, 0, 0], scale: [0.62, 0.62, 0.36], color: '#3b6fd4', emissive: '#000000' }] }
@@ -2667,7 +2868,11 @@ function sanitizeCards(list) {
 }
 
 function sanitizeDeck(deck) {
-  const valid = new Set([...ALL_CARDS.map((c) => c.id), ...storage.getCustomCards().map((c) => c && c.id)]);
+  const valid = new Set([
+    ...ALL_CARDS.map((c) => c.id),
+    ...storage.getCustomCards().map((c) => c && c.id),
+    ...accounts.globalCards().map((c) => c && c.id)
+  ]);
   let list = Array.isArray(deck) ? deck.filter((id) => typeof id === 'string' && valid.has(id)) : [];
   list = [...new Set(list)].slice(0, 8);
   if (list.length < 4) {

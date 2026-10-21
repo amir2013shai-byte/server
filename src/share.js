@@ -1,42 +1,84 @@
 // Обмен картами по коду: карта → компактный код «BC1.…» и обратно.
 // Код можно переслать другу (вставить в импорт) или открыть по ссылке #card=…
+// Рисунки карт обмениваются кодом «BA1.…» (векторные штрихи + анимация).
 
 const PREFIX = 'BC1.';
-const MODEL_PREFIX = 'BM1.';
+const ART_PREFIX = 'BA1.';
 
-// 3D-модель → код (для обмена моделями из редактора)
-export function encodeModel(model) {
+// рисунок карты → код (для обмена из редактора рисунка)
+export function encodeArt(art) {
   try {
-    const json = JSON.stringify({ parts: (model && model.parts) || [] });
-    return MODEL_PREFIX + bytesToB64url(new TextEncoder().encode(json));
+    const json = JSON.stringify({
+      frames: (art && art.frames) || [[]],
+      anim: (art && art.anim) || { type: 'none', speed: 1, fps: 6 }
+    });
+    return ART_PREFIX + bytesToB64url(new TextEncoder().encode(json));
   } catch {
     return null;
   }
 }
 
-export function decodeModel(code) {
+export function decodeArt(code) {
   try {
     const s = String(code || '').trim();
-    if (!s.startsWith(MODEL_PREFIX)) return null;
-    const json = new TextDecoder().decode(b64urlToBytes(s.slice(MODEL_PREFIX.length)));
-    const m = JSON.parse(json);
-    if (!m || !Array.isArray(m.parts) || !m.parts.length) return null;
-    // базовая санитизация полей частей
-    const parts = m.parts.slice(0, 80).map((p) => ({
-      shape: typeof p.shape === 'string' ? p.shape : 'box',
-      pos: Array.isArray(p.pos) ? p.pos.slice(0, 3).map(Number) : [0, 0, 0],
-      rot: Array.isArray(p.rot) ? p.rot.slice(0, 3).map(Number) : [0, 0, 0],
-      scale: Array.isArray(p.scale) ? p.scale.slice(0, 3).map(Number) : [1, 1, 1],
-      color: typeof p.color === 'string' ? p.color : '#cccccc',
-      emissive: typeof p.emissive === 'string' ? p.emissive : '#000000',
-      tex: typeof p.tex === 'string' ? p.tex : 'none',
-      opacity: Number.isFinite(p.opacity) ? Math.min(1, Math.max(0.1, p.opacity)) : 1,
-      anim: typeof p.anim === 'string' ? p.anim : 'none'
-    }));
-    return { parts };
+    if (!s.startsWith(ART_PREFIX)) return null;
+    const json = new TextDecoder().decode(b64urlToBytes(s.slice(ART_PREFIX.length)));
+    return sanitizeArt(JSON.parse(json));
   } catch {
     return null;
   }
+}
+
+// базовая санитизация рисунка (рамки, штрихи, координаты)
+export function sanitizeArt(a) {
+  const empty = { frames: [[]], anim: { type: 'none', speed: 1, fps: 6 } };
+  if (!a || typeof a !== 'object') return empty;
+  const frames = [];
+  for (const fr of (Array.isArray(a.frames) ? a.frames : []).slice(0, 4)) {
+    if (!Array.isArray(fr)) continue;
+    const strokes = [];
+    for (const s of fr.slice(0, 400)) {
+      if (!s || typeof s !== 'object') continue;
+      if (s.shape) {
+        strokes.push({
+          shape: ['circle', 'rect', 'star', 'heart'].includes(s.shape) ? s.shape : 'circle',
+          c: typeof s.c === 'string' ? s.c.slice(0, 24) : '#ffffff',
+          x: numClamp(s.x, 0, 128, 64),
+          y: numClamp(s.y, 0, 128, 64),
+          s: numClamp(s.s, 2, 128, 24)
+        });
+      } else {
+        const pts = (Array.isArray(s.pts) ? s.pts : [])
+          .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+          .slice(0, 400)
+          .map((p) => [numClamp(p[0], 0, 128, 0), numClamp(p[1], 0, 128, 0)]);
+        if (!pts.length) continue;
+        strokes.push({
+          c: typeof s.c === 'string' ? s.c.slice(0, 24) : '#ffffff',
+          w: numClamp(s.w, 1, 64, 6),
+          e: !!s.e,
+          pts
+        });
+      }
+    }
+    frames.push(strokes);
+  }
+  if (!frames.length) frames.push([]);
+  const an = (a.anim && typeof a.anim === 'object') ? a.anim : {};
+  return {
+    frames,
+    anim: {
+      type: ['none', 'bob', 'pulse', 'shake', 'spin', 'walk'].includes(an.type) ? an.type : 'none',
+      speed: numClamp(an.speed, 0.2, 4, 1),
+      fps: numClamp(an.fps, 1, 20, 6)
+    }
+  };
+}
+
+function numClamp(v, a, b, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return d;
+  return Math.max(a, Math.min(b, n));
 }
 
 function bytesToB64url(bytes) {
@@ -66,7 +108,8 @@ export function encodeCard(card) {
     tg: card.targets, fl: card.flying ? 1 : 0, bo: card.buildingOnly ? 1 : 0,
     ab: card.abilities || [],
     sc: card.spell || null, bd: card.building || null,
-    m: card.model
+    m: card.model || null,
+    a: card.art || null
   };
   const json = JSON.stringify(payload);
   return PREFIX + bytesToB64url(new TextEncoder().encode(json));
@@ -103,6 +146,7 @@ export function decodeCard(code) {
       abilities: Array.isArray(p.ab) ? p.ab.filter((a) => a && typeof a === 'object' && a.type).slice(0, 12) : [],
       spell: p.sc && typeof p.sc === 'object' ? p.sc : null,
       building: p.bd && typeof p.bd === 'object' ? p.bd : null,
+      art: p.a ? sanitizeArt(p.a) : null,
       model: p.m && Array.isArray(p.m.parts) && p.m.parts.length
         ? { parts: p.m.parts.slice(0, 80) }
         : { parts: [{ shape: 'box', pos: [0, 0.85, 0], rot: [0, 0, 0], scale: [0.62, 0.62, 0.36], color: '#3b6fd4', emissive: '#000000' }] }

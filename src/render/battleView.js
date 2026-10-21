@@ -1,215 +1,74 @@
-// 3D-вид битвы: арена, башни, юниты, эффекты. Синхронизируется с движком каждый кадр.
-import * as THREE from 'three';
-import { buildModel, teamRing, healthBar, setHealthBar, animateModel } from './modelBuilder.js';
+// 2D-вид битвы (canvas): арена, башни с видимым HP, юниты-спрайты, эффекты.
+// Никакого WebGL/3D — плоская арена сверху, рисунок карты как спрайт.
 import { ARENA } from '../game/engine.js';
+import { drawCardSprite, baseSprite } from './art2d.js';
 
 const PLAYER_RING = '#4a90ff';
 const ENEMY_RING = '#e05555';
+const MARGIN = 1.35; // поля за стенами
 
 export class BattleView {
   constructor(container, battle, opts = {}) {
     this.container = container;
     this.battle = battle;
-    this.opts = opts;
-    this.entities = new Map(); // unit/tower id -> { group, bar, ring, kind }
+    this.opts = opts || {};
+    this.pendingCard = null;
+    this.pointer = { down: false, x: 0, y: 0 };
     this.projectiles = [];
     this.fx = [];
-    this.pendingCard = null;
-    this.ghost = null;
-    this.pointer = { down: false, x: 0, y: 0 };
     this.floating = [];
     this._disposed = false;
+    this._t = 0;
 
-    const w = container.clientWidth || 400;
-    const h = container.clientHeight || 700;
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'battle-2d';
+    this.canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;';
+    container.appendChild(this.canvas);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setSize(w, h);
-    this.renderer.setClearColor(0x1a2238);
-    container.appendChild(this.renderer.domElement);
-    this.renderer.domElement.style.touchAction = 'none';
-    this.renderer.domElement.style.display = 'block';
+    this._ctx = null;
+    try {
+      this._ctx = this.canvas.getContext('2d');
+    } catch {
+      this._ctx = null; // jsdom/старые WebView — рисование пропущено, ввод работает
+    }
 
-    this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x1a2238, 42, 85);
-
-    this.camera = new THREE.PerspectiveCamera(42.5, w / h, 0.1, 200);
-    this._layoutCamera();
-
-    // свет
-    const amb = new THREE.AmbientLight(0xb8c8ff, 0.85);
-    const dir = new THREE.DirectionalLight(0xfff2dd, 1.35);
-    dir.position.set(-14, 26, -12);
-    this.scene.add(amb, dir);
-    const back = new THREE.DirectionalLight(0x6688cc, 0.5);
-    back.position.set(12, 16, 20);
-    this.scene.add(back);
-
-    this._buildArena();
-    this._buildTowers();
-
-    this.raycaster = new THREE.Raycaster();
-    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this._bindInput();
-
-    // слой для «плывущих» чисел
-    this.fxLayer = document.createElement('div');
-    this.fxLayer.className = 'battle-fx-layer';
-    this.fxLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
-    container.appendChild(this.fxLayer);
-
     this._onResize = () => this.resize();
     window.addEventListener('resize', this._onResize);
+    this.resize();
   }
 
-  _layoutCamera() {
-    // камера над своей половиной: низ экрана — своя зона, верх — вражеская
-    this.camera.position.set(0, 36, -16);
-    this.camera.lookAt(0, 0, -2);
+  // ——— координаты ———
+
+  _bounds() {
+    return {
+      minX: -(ARENA.halfW + MARGIN), maxX: ARENA.halfW + MARGIN,
+      minY: -(ARENA.halfH + MARGIN), maxY: ARENA.halfH + MARGIN
+    };
   }
 
-  _buildArena() {
-    const s = this.scene;
-    // пол
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(ARENA.halfW * 2 + 2.6, ARENA.halfH * 2 + 2.6),
-      new THREE.MeshStandardMaterial({ color: 0x3f7d46, roughness: 1 })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
-    s.add(ground);
-
-    // клетки-полосы для глубины
-    for (let i = -7; i <= 7; i++) {
-      const strip = new THREE.Mesh(
-        new THREE.PlaneGeometry(ARENA.halfW * 2, 1.9),
-        new THREE.MeshStandardMaterial({ color: i % 2 === 0 ? 0x468a4e : 0x3f7d46, roughness: 1 })
-      );
-      strip.rotation.x = -Math.PI / 2;
-      strip.position.set(0, -0.01, i * 2.2);
-      s.add(strip);
-    }
-
-    // река
-    const river = new THREE.Mesh(
-      new THREE.PlaneGeometry(ARENA.halfW * 2 + 2.6, ARENA.riverY * 2),
-      new THREE.MeshStandardMaterial({
-        color: 0x2e7dd6, transparent: true, opacity: 0.88, roughness: 0.25, metalness: 0.35
-      })
-    );
-    river.rotation.x = -Math.PI / 2;
-    river.position.y = 0.06;
-    s.add(river);
-
-    // мосты
-    for (const bx of [-ARENA.bridgeX, ARENA.bridgeX]) {
-      const bridge = new THREE.Mesh(
-        new THREE.BoxGeometry(ARENA.bridgeHalfW * 2, 0.22, ARENA.riverY * 2 + 1.4),
-        new THREE.MeshStandardMaterial({ color: 0x9a7248, roughness: 0.9 })
-      );
-      bridge.position.set(bx, 0.11, 0);
-      s.add(bridge);
-    }
-
-    // стенки
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2c3a55, roughness: 0.95 });
-    for (const [x, z, w, d] of [
-      [-(ARENA.halfW + 1.3), 0, 1.2, ARENA.halfH * 2 + 4],
-      [ARENA.halfW + 1.3, 0, 1.2, ARENA.halfH * 2 + 4],
-      [0, -(ARENA.halfH + 1.3), ARENA.halfW * 2 + 4, 1.2],
-      [0, ARENA.halfH + 1.3, ARENA.halfW * 2 + 4, 1.2]
-    ]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, d), wallMat);
-      wall.position.set(x, 0.8, z);
-      s.add(wall);
-    }
+  worldToScreen(x, y) {
+    const b = this._bounds();
+    const w = this.canvas.width || 1, h = this.canvas.height || 1;
+    return {
+      x: ((x - b.minX) / (b.maxX - b.minX)) * w,
+      y: ((b.maxY - y) / (b.maxY - b.minY)) * h
+    };
   }
 
-  _buildTowers() {
-    for (const tw of this.battle.towers) {
-      const group = new THREE.Group();
-      const isPlayer = tw.team === 'player';
-      const stone = isPlayer ? '#5b7fd6' : '#d65b5b';
-      const roof = isPlayer ? '#2c4a9c' : '#9c2c2c';
-      const glow = isPlayer ? '#8ab8ff' : '#ff8a8a';
-
-      if (tw.kind === 'king') {
-        const base = new THREE.Mesh(
-          new THREE.BoxGeometry(3.2, 1.1, 3.2),
-          new THREE.MeshStandardMaterial({ color: stone, roughness: 0.85 })
-        );
-        base.position.y = 0.55;
-        const keep = new THREE.Mesh(
-          new THREE.BoxGeometry(2.5, 2.6, 2.5),
-          new THREE.MeshStandardMaterial({ color: stone, roughness: 0.8 })
-        );
-        keep.position.y = 2.2;
-        const roofM = new THREE.Mesh(
-          new THREE.ConeGeometry(2.1, 1.6, 4),
-          new THREE.MeshStandardMaterial({ color: roof, roughness: 0.7 })
-        );
-        roofM.position.y = 4.1;
-        roofM.rotation.y = Math.PI / 4;
-        const flag = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, 1.2, 0.12),
-          new THREE.MeshStandardMaterial({ color: '#e8e0c8' })
-        );
-        flag.position.y = 5.3;
-        const banner = new THREE.Mesh(
-          new THREE.BoxGeometry(0.9, 0.55, 0.05),
-          new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.35 })
-        );
-        banner.position.set(0.48, 5.55, 0);
-        group.add(base, keep, roofM, flag, banner);
-      } else {
-        const base = new THREE.Mesh(
-          new THREE.BoxGeometry(2.4, 0.9, 2.4),
-          new THREE.MeshStandardMaterial({ color: stone, roughness: 0.85 })
-        );
-        base.position.y = 0.45;
-        const tower = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.05, 1.25, 3.0, 10),
-          new THREE.MeshStandardMaterial({ color: stone, roughness: 0.8 })
-        );
-        tower.position.y = 2.3;
-        const roofM = new THREE.Mesh(
-          new THREE.ConeGeometry(1.35, 1.35, 10),
-          new THREE.MeshStandardMaterial({ color: roof, roughness: 0.7 })
-        );
-        roofM.position.y = 4.45;
-        const crystal = new THREE.Mesh(
-          new THREE.SphereGeometry(0.32, 12, 10),
-          new THREE.MeshStandardMaterial({ color: glow, emissive: glow, emissiveIntensity: 0.8 })
-        );
-        crystal.position.y = 5.35;
-        group.add(base, tower, roofM, crystal);
-      }
-
-      group.position.set(tw.x, 0, tw.y);
-      const bar = healthBar(2.2);
-      bar.position.y = tw.kind === 'king' ? 6.6 : 6.4;
-      group.add(bar);
-
-      this.scene.add(group);
-      this.entities.set(tw.id, { group, bar, kind: 'tower', hp: tw.hp, maxHp: tw.maxHp, entity: tw });
-    }
-  }
-
-  // ——— ввод ———
-
-  // Точка экрана (clientX/Y) → точка арены {x,y} или null, если луч не бьёт в землю.
+  // Точка экрана (clientX/Y) → точка арены {x,y} (низ экрана — своя половина).
   screenToGround(clientX, clientY) {
-    const el = this.renderer && this.renderer.domElement;
-    if (!el || !this.camera) return null;
-    const rect = el.getBoundingClientRect();
+    const el = this.canvas;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
     if (!rect.width || !rect.height) return null;
-    const px = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const py = -((clientY - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera({ x: px, y: py }, this.camera);
-    const pt = new THREE.Vector3();
-    const hit = this.raycaster.ray.intersectPlane(this.groundPlane, pt);
-    return hit ? { x: pt.x, y: pt.z } : null;
+    const b = this._bounds();
+    const px = (clientX - rect.left) / rect.width;
+    const py = (clientY - rect.top) / rect.height;
+    return {
+      x: b.minX + px * (b.maxX - b.minX),
+      y: b.maxY - py * (b.maxY - b.minY)
+    };
   }
 
   // Показать «призрак» карты в точке экрана (для перетаскивания из руки).
@@ -219,8 +78,10 @@ export class BattleView {
     return p;
   }
 
+  // ——— ввод ———
+
   _bindInput() {
-    const el = this.renderer.domElement;
+    const el = this.canvas;
 
     const down = (x, y) => {
       this.pointer.down = true;
@@ -277,355 +138,468 @@ export class BattleView {
 
   setPendingCard(card) {
     this.pendingCard = card;
-    if (this.ghost) {
-      this.scene.remove(this.ghost);
-      this.ghost = null;
-    }
-    if (!card) return;
-
-    const ghost = new THREE.Group();
-    const model = buildModel(card.model);
-    model.traverse((m) => {
-      if (m.isMesh) {
-        m.material = m.material.clone();
-        m.material.transparent = true;
-        m.material.opacity = 0.55;
-        m.material.depthWrite = false;
-      }
-    });
-    ghost.add(model);
-
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.35, 1.55, 32),
-      new THREE.MeshBasicMaterial({ color: 0x8ab8ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.08;
-    ghost.add(ring);
-    ghost.userData.ring = ring;
-    ghost.visible = false;
-
-    this.ghost = ghost;
-    this.scene.add(ghost);
+    this.ghost = card ? { x: 0, y: 0, visible: false, ok: false } : null;
+    if (card) this._updateGhost(this.pointer.x, this.pointer.y);
   }
 
   _updateGhost(x, y) {
     if (!this.ghost) return;
+    this.ghost.x = x;
+    this.ghost.y = y;
     this.ghost.visible = true;
-    this.ghost.position.set(x, 0, y);
-    const ok = this.battle.canPlaceAt(x, y, this.opts.team || 'player');
-    this.ghost.userData.ring.material.color.set(ok ? 0x8ab8ff : 0xff5555);
-    this.ghost.userData.ok = ok;
+    const c = this.pendingCard;
+    this.ghost.ok = this.battle.canPlaceAt(x, y, this.opts.team || 'player', c && c.id ? c : null);
+    this.ghost.radius = c && c.type === 'spell' && c.spell ? (c.spell.radius || 2.5) : 1.1;
   }
 
   // ——— синхронизация ———
 
   update(dt, externalEvents) {
+    if (this._disposed) return;
+    this._t += dt;
     const b = this.battle;
     const events = externalEvents || b.drainEvents();
     for (const e of events) this._handleEvent(e);
 
-    // юниты
-    for (const u of b.units) {
-      if (!u.alive) continue;
-      let ent = this.entities.get(u.id);
-      if (!ent) ent = this._spawnEntity(u);
-      ent.group.position.set(u.x, 0, u.y);
-      const bob = u.flying ? Math.sin(performance.now() * 0.003 + u.id) * 0.12 : 0;
-      ent.model.position.y = bob;
-
-      // статус-подсветка
-      const frozen = b.time < u.frozenUntil;
-      const raged = b.time < u.rageUntil;
-      ent.ring.material.color.set(frozen ? 0x9adcff : raged ? 0xc26bf2 : (u.team === 'player' ? PLAYER_RING : ENEMY_RING));
-      ent.model.rotation.y = u.team === 'player' ? 0 : Math.PI;
-      animateModel(ent.model, performance.now() / 1000);
-
-      const ratio = Math.max(0, u.hp / u.maxHp);
-      setHealthBar(ent.bar, ratio, ratio > 0.5 ? 0x35d05a : ratio > 0.25 ? 0xe0c040 : 0xe05555);
-      ent.bar.visible = ratio < 1;
-      ent.bar.quaternion.copy(this.camera.quaternion);
-
-      // щит
-      if (u.shieldMax > 0) {
-        ent.shield.visible = u.shieldHp > 0;
-        if (u.shieldHp > 0) ent.shield.position.y = 0.06 + Math.sin(performance.now() * 0.004) * 0.02;
-      }
-
-      // анимация ходьбы
-      if (u.speed > 0 && b.time > u.frozenUntil) {
-        ent.legs += dt * u.speed * 3.2;
-        ent.model.position.y += Math.abs(Math.sin(ent.legs)) * 0.06;
-      }
-    }
-
-    // башни: полоски
-    for (const tw of b.towers) {
-      const ent = this.entities.get(tw.id);
-      if (!ent) continue;
-      if (!tw.alive) {
-        ent.group.rotation.z = 1.35;
-        ent.group.position.y = -0.6;
-        ent.bar.visible = false;
-        continue;
-      }
-      const ratio = tw.hp / tw.maxHp;
-      setHealthBar(ent.bar, ratio, ratio > 0.5 ? 0x35d05a : ratio > 0.25 ? 0xe0c040 : 0xe05555);
-      ent.bar.quaternion.copy(this.camera.quaternion);
-    }
-
     // снаряды
     for (const p of this.projectiles) {
       p.t = Math.min(1, p.t + dt * p.speed);
+    }
+    this.projectiles = this.projectiles.filter((p) => p.t < 1);
+
+    // эффекты
+    for (const f of this.fx) f.t += dt;
+    this.fx = this.fx.filter((f) => f.t < f.dur);
+
+    // всплывающие числа
+    for (const f of this.floating) f.t += dt;
+    this.floating = this.floating.filter((f) => f.t < f.dur);
+
+    this._draw();
+  }
+
+  // ——— отрисовка ———
+
+  _draw() {
+    const ctx = this._ctx;
+    if (!ctx) return;
+    const W = this.canvas.width, H = this.canvas.height;
+    const t = this._t;
+    ctx.clearRect(0, 0, W, H);
+
+    this._drawArena(ctx, W, H);
+
+    // зоны (яд)
+    for (const z of this.battle.zones || []) {
+      const p = this.worldToScreen(z.x, z.y);
+      const r = this._scale(z.radius);
+      ctx.fillStyle = 'rgba(120, 200, 80, 0.28)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // башни
+    for (const tw of this.battle.towers) this._drawTower(ctx, tw, t);
+
+    // юниты: сначала тени, потом сами
+    const units = (this.battle.units || []).filter((u) => u.alive);
+    for (const u of units) this._drawUnitShadow(ctx, u);
+    for (const u of units) this._drawUnit(ctx, u, t);
+
+    // снаряды
+    for (const p of this.projectiles) {
       const x = p.x1 + (p.x2 - p.x1) * p.t;
       const y = p.y1 + (p.y2 - p.y1) * p.t;
-      const z = (p.z1 + (p.z2 - p.z1) * p.t) + Math.sin(p.t * Math.PI) * (p.arc || 1.2);
-      p.mesh.position.set(x, z, y);
+      const lift = Math.sin(p.t * Math.PI) * (p.arc || 0.8);
+      const s = this.worldToScreen(x, y);
+      const scale = this._scale(1);
+      ctx.fillStyle = p.color || '#ffe066';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - lift * scale * 1.6, Math.max(2.5, scale * 0.28), 0, Math.PI * 2);
+      ctx.fill();
     }
-    this.projectiles = this.projectiles.filter((p) => {
-      if (p.t >= 1) {
-        this.scene.remove(p.mesh);
-        return false;
-      }
-      return true;
-    });
 
     // эффекты
     for (const f of this.fx) {
-      f.t += dt;
-      const k = f.t / f.dur;
-      if (f.kind === 'ring') {
-        f.mesh.scale.setScalar(0.3 + k * f.scale);
-        f.mesh.material.opacity = Math.max(0, 0.8 * (1 - k));
+      const k = Math.min(1, f.t / f.dur);
+      const p = this.worldToScreen(f.x, f.y);
+      const scale = this._scale(1);
+      if (f.kind === 'ring' || f.kind === 'chargeFx') {
+        ctx.strokeStyle = f.color || '#ffffff';
+        ctx.globalAlpha = Math.max(0, 0.85 * (1 - k));
+        ctx.lineWidth = Math.max(2, scale * 0.16);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, scale * (0.5 + k * (f.radius || 1.5)), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       } else if (f.kind === 'boom') {
-        f.mesh.scale.setScalar(0.3 + k * f.scale);
-        f.mesh.material.opacity = Math.max(0, 0.9 * (1 - k));
+        const r = scale * (0.4 + k * (f.radius || 1.2));
+        const g = ctx.createRadialGradient(p.x, p.y, r * 0.15, p.x, p.y, r);
+        g.addColorStop(0, f.color || 'rgba(255,180,80,0.95)');
+        g.addColorStop(1, 'rgba(255,120,40,0)');
+        ctx.fillStyle = g;
+        ctx.globalAlpha = Math.max(0, 1 - k);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
       } else if (f.kind === 'line') {
-        f.mesh.material.opacity = Math.max(0, 0.9 * (1 - k));
+        const p2 = this.worldToScreen(f.x2, f.y2);
+        ctx.strokeStyle = f.color || '#ffe066';
+        ctx.globalAlpha = Math.max(0, 0.95 * (1 - k));
+        ctx.lineWidth = Math.max(2, scale * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       } else if (f.kind === 'heal') {
-        f.mesh.position.y = 0.4 + k * 1.6;
-        f.mesh.material.opacity = Math.max(0, 0.7 * (1 - k));
+        ctx.fillStyle = '#7dff9e';
+        ctx.globalAlpha = Math.max(0, 0.75 * (1 - k));
+        const s2 = scale * 0.42;
+        const yy = p.y - k * scale * 1.8;
+        ctx.fillRect(p.x - s2 / 2, yy - s2 / 6, s2, s2 / 3);
+        ctx.fillRect(p.x - s2 / 6, yy - s2 / 2, s2 / 3, s2);
+        ctx.globalAlpha = 1;
+      } else if (f.kind === 'text') {
+        ctx.fillStyle = f.color || '#ffffff';
+        ctx.globalAlpha = Math.max(0, 1 - k);
+        ctx.font = `700 ${Math.round(this._scale(1.1))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(f.text, p.x, p.y - k * this._scale(1.6));
+        ctx.globalAlpha = 1;
       }
     }
-    this.fx = this.fx.filter((f) => {
-      if (f.t >= f.dur) {
-        this.scene.remove(f.mesh);
-        return false;
+
+    // призрак высадки
+    if (this.ghost && this.ghost.visible && this.pendingCard) {
+      const g = this.ghost;
+      const p = this.worldToScreen(g.x, g.y);
+      const scale = this._scale(1);
+      if (g.radius > 1.2) {
+        ctx.fillStyle = g.ok ? 'rgba(120,180,255,0.18)' : 'rgba(255,90,90,0.18)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, this._scale(g.radius), 0, Math.PI * 2);
+        ctx.fill();
       }
-      return true;
-    });
-
-    // всплывающие числа
-    this._updateFloating(dt);
-
-    this.renderer.render(this.scene, this.camera);
-  }
-
-  _spawnEntity(u) {
-    const group = new THREE.Group();
-    const model = buildModel(u.card.model);
-    const scale = u.isBuilding ? 0.92 : u.card.hp > 3000 ? 1.12 : u.card.count > 2 ? 0.72 : 0.95;
-    model.scale.setScalar(scale);
-
-    const ring = teamRing(u.team === 'player' ? PLAYER_RING : ENEMY_RING, u.isBuilding ? 1.15 : 0.62);
-    const bar = healthBar(u.isBuilding ? 1.4 : 0.95);
-    bar.position.y = (u.flying ? 2.6 : 2.1) * scale + 0.2;
-    bar.visible = false;
-
-    group.add(model, ring, bar);
-
-    let shield = null;
-    if (u.shieldMax > 0) {
-      shield = new THREE.Mesh(
-        new THREE.SphereGeometry(0.95, 14, 10),
-        new THREE.MeshBasicMaterial({ color: 0x8ab8ff, transparent: true, opacity: 0.22, depthWrite: false })
-      );
-      shield.position.y = 1.1;
-      group.add(shield);
+      ctx.strokeStyle = g.ok ? '#8ab8ff' : '#ff5555';
+      ctx.lineWidth = Math.max(2, scale * 0.12);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, scale * 1.05, 0, Math.PI * 2);
+      ctx.stroke();
+      const spr = baseSprite(this.pendingCard, 64);
+      ctx.globalAlpha = 0.75;
+      ctx.drawImage(spr, p.x - scale, p.y - scale, scale * 2, scale * 2);
+      ctx.globalAlpha = 1;
     }
 
-    this.scene.add(group);
-    const ent = { group, model, ring, bar, shield, kind: 'unit', legs: Math.random() * 6, entity: u };
-    this.entities.set(u.id, ent);
-    return ent;
+    // всплывающие числа (поверх всего)
+    ctx.textAlign = 'center';
+    for (const f of this.floating) {
+      const p = this.worldToScreen(f.x, f.y);
+      ctx.fillStyle = f.color || '#ffd0d0';
+      ctx.globalAlpha = Math.max(0, 1 - f.t / f.dur);
+      ctx.font = `700 ${Math.round(this._scale(1.15))}px sans-serif`;
+      ctx.fillText(f.text, p.x, p.y - f.t * this._scale(3.2));
+      ctx.globalAlpha = 1;
+    }
   }
+
+  _scale(world) {
+    // сколько пикселей в 1 условной единице арены
+    const b = this._bounds();
+    return (this.canvas.width || 1) / (b.maxX - b.minX);
+  }
+
+  _drawArena(ctx, W, H) {
+    // поля за стенами
+    ctx.fillStyle = '#2c3a55';
+    ctx.fillRect(0, 0, W, H);
+
+    const tl = this.worldToScreen(-(ARENA.halfW), ARENA.halfH);
+    const br = this.worldToScreen(ARENA.halfW, -(ARENA.halfH));
+    const fw = br.x - tl.x, fh = br.y - tl.y;
+
+    // газон полосами
+    for (let i = 0; i < 14; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#3f7d46' : '#468a4e';
+      ctx.fillRect(tl.x, tl.y + (i / 14) * fh, fw, fh / 14 + 1);
+    }
+
+    // подсветка половин (своя — синеватая, вражеская — тепловатая)
+    ctx.fillStyle = 'rgba(60,110,220,0.10)';
+    ctx.fillRect(tl.x, tl.y + fh / 2, fw, fh / 2);
+    ctx.fillStyle = 'rgba(220,90,70,0.08)';
+    ctx.fillRect(tl.x, tl.y, fw, fh / 2);
+
+    // река
+    const r1 = this.worldToScreen(0, ARENA.riverY);
+    const r2 = this.worldToScreen(0, -ARENA.riverY);
+    ctx.fillStyle = '#2e7dd6';
+    ctx.fillRect(tl.x, r1.y, fw, r2.y - r1.y);
+
+    // мосты
+    for (const bx of [-ARENA.bridgeX, ARENA.bridgeX]) {
+      const b1 = this.worldToScreen(bx - ARENA.bridgeHalfW, ARENA.riverY + 0.9);
+      const b2 = this.worldToScreen(bx + ARENA.bridgeHalfW, -ARENA.riverY - 0.9);
+      ctx.fillStyle = '#9a7248';
+      ctx.fillRect(b1.x, b1.y, b2.x - b1.x, b2.y - b1.y);
+    }
+
+    // центральная линия
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const mid = this.worldToScreen(0, 0);
+    ctx.moveTo(tl.x, mid.y);
+    ctx.lineTo(br.x, mid.y);
+    ctx.stroke();
+  }
+
+  _drawTower(ctx, tw, t) {
+    const p = this.worldToScreen(tw.x, tw.y);
+    const scale = this._scale(1);
+    const isPlayer = tw.team === 'player';
+    const stone = isPlayer ? '#5b7fd6' : '#d65b5b';
+    const roof = isPlayer ? '#2c4a9c' : '#9c2c2c';
+    const glow = isPlayer ? '#8ab8ff' : '#ff8a8a';
+
+    if (!tw.alive) {
+      // руины
+      ctx.fillStyle = '#555b6e';
+      const r = scale * (tw.kind === 'king' ? 1.9 : 1.5);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3d4252';
+      for (let i = 0; i < 5; i++) {
+        const a = i * 1.25;
+        ctx.fillRect(p.x + Math.cos(a) * r * 0.5 - r * 0.22, p.y + Math.sin(a) * r * 0.5 - r * 0.16, r * 0.44, r * 0.32);
+      }
+      return;
+    }
+
+    const kingSleep = tw.kind === 'king' && !tw.activated;
+    const r = scale * (tw.kind === 'king' ? 1.9 : 1.5);
+
+    // основание
+    ctx.fillStyle = stone;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = roof;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r * 0.62, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (tw.kind === 'king') {
+      // зубцы + флаг
+      ctx.fillStyle = stone;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        ctx.fillRect(p.x + Math.cos(a) * r * 0.78 - r * 0.16, p.y + Math.sin(a) * r * 0.78 - r * 0.16, r * 0.32, r * 0.32);
+      }
+      ctx.fillStyle = glow;
+      ctx.fillRect(p.x - r * 0.06, p.y - r * 1.35, r * 0.12, r * 0.8);
+      ctx.fillStyle = kingSleep ? '#8e97b4' : glow;
+      ctx.beginPath();
+      ctx.moveTo(p.x + r * 0.06, p.y - r * 1.35);
+      ctx.lineTo(p.x + r * 0.75, p.y - r * 1.12);
+      ctx.lineTo(p.x + r * 0.06, p.y - r * 0.9);
+      ctx.closePath();
+      ctx.fill();
+      if (kingSleep) {
+        // спит — не стреляет
+        ctx.fillStyle = '#dfe6ff';
+        ctx.font = `700 ${Math.round(scale * 0.9)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('💤', p.x, p.y - r * 1.55);
+      }
+    } else {
+      // кристалл боковой башни
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - r * 0.55, r * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // полоса HP башни — ВСЕГДА видна + точные числа
+    const barW = scale * 3.4;
+    const barH = Math.max(6, scale * 0.42);
+    const bx = p.x - barW / 2;
+    const by = p.y - r - barH * 2.6;
+    const ratio = Math.max(0, tw.hp / tw.maxHp);
+    ctx.fillStyle = 'rgba(10,14,24,0.85)';
+    ctx.fillRect(bx - 2, by - 2, barW + 4, barH + 4);
+    ctx.fillStyle = ratio > 0.5 ? '#35d05a' : ratio > 0.25 ? '#e0c040' : '#e05555';
+    ctx.fillRect(bx, by, barW * ratio, barH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, barW, barH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 ${Math.round(barH * 1.05)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.ceil(tw.hp)}`, p.x, by - 4);
+  }
+
+  _drawUnitShadow(ctx, u) {
+    const p = this.worldToScreen(u.x, u.y);
+    const scale = this._scale(1);
+    const r = scale * (u.isBuilding ? 1.25 : 0.72);
+    ctx.fillStyle = u.flying ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + r * 0.55, r * (u.flying ? 0.75 : 1), r * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  _drawUnit(ctx, u, t) {
+    const b = this.battle;
+    const p = this.worldToScreen(u.x, u.y);
+    const scale = this._scale(1);
+    const frozen = b.time < u.frozenUntil;
+    const raged = b.time < u.rageUntil;
+    const moving = u.speed > 0 && !frozen && !(u.isBuilding);
+
+    // кольцо команды
+    const ringR = scale * (u.isBuilding ? 1.3 : 0.85);
+    ctx.strokeStyle = frozen ? '#9adcff' : raged ? '#c26bf2' : (u.team === 'player' ? PLAYER_RING : ENEMY_RING);
+    ctx.lineWidth = Math.max(2, scale * 0.12);
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + ringR * 0.35, ringR, ringR * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // спрайт карты (с анимацией рисунка)
+    const size = scale * (u.isBuilding ? 2.3 : u.card && u.card.count > 2 ? 1.45 : 1.85);
+    drawCardSprite(ctx, u.card || { id: u.cardId }, p.x, p.y - size * 0.28, size, t, { moving, flying: u.flying });
+
+    // статусы
+    if (frozen) {
+      ctx.fillStyle = 'rgba(140, 210, 255, 0.35)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - size * 0.28, size * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (u.shieldHp > 0) {
+      ctx.strokeStyle = 'rgba(138,184,255,0.85)';
+      ctx.lineWidth = Math.max(2, scale * 0.1);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - size * 0.28, size * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // HP юнита (когда повреждён)
+    const ratio = Math.max(0, u.hp / u.maxHp);
+    if (ratio < 1) {
+      const barW = scale * 1.7;
+      const barH = Math.max(3, scale * 0.22);
+      const bx = p.x - barW / 2;
+      const by = p.y - size * 0.95;
+      ctx.fillStyle = 'rgba(10,14,24,0.8)';
+      ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+      ctx.fillStyle = ratio > 0.5 ? '#35d05a' : ratio > 0.25 ? '#e0c040' : '#e05555';
+      ctx.fillRect(bx, by, barW * ratio, barH);
+      if (u.shieldMax > 0 && u.shieldHp > 0) {
+        ctx.fillStyle = '#8ab8ff';
+        ctx.fillRect(bx, by - barH - 2, barW * Math.max(0, u.shieldHp / u.shieldMax), barH * 0.8);
+      }
+    }
+  }
+
+  // ——— события ———
 
   _handleEvent(e) {
     switch (e.type) {
       case 'attack': {
-        const from = e.ranged ? { x: e.x, y: e.y, z: e.z + 1.3 } : null;
-        if (from) {
-          const mesh = new THREE.Mesh(
-            new THREE.SphereGeometry(0.18, 8, 6),
-            new THREE.MeshBasicMaterial({ color: 0xffe066 })
-          );
-          mesh.position.set(from.x, from.z, from.y);
-          this.scene.add(mesh);
+        if (e.ranged) {
           this.projectiles.push({
-            mesh,
-            x1: from.x, y1: from.y, z1: from.z,
-            x2: e.tx, y2: e.ty, z2: 1.2,
-            t: 0, speed: 3.2, arc: 0.9
+            x1: e.x, y1: e.y, x2: e.tx, y2: e.ty,
+            t: 0, speed: 3.2, arc: 1.1, color: '#ffe066'
           });
         }
         break;
       }
       case 'towerShot': {
-        const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.26, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0x8ab8ff })
-        );
-        mesh.position.set(e.x, e.z, e.y);
-        this.scene.add(mesh);
         this.projectiles.push({
-          mesh,
-          x1: e.x, y1: e.y, z1: e.z,
-          x2: e.tx, y2: e.ty, z2: 1.2,
-          t: 0, speed: 4.2, arc: 0.5
+          x1: e.x, y1: e.y, x2: e.tx, y2: e.ty,
+          t: 0, speed: 4.2, arc: 0.6, color: '#8ab8ff'
         });
         break;
       }
       case 'spellFx': {
         const colors = {
-          damage: 0xff8b3c, heal: 0x7dff9e, freeze: 0x9adcff,
-          stun: 0xffe066, rage: 0xc26bf2, poison: 0x8fcc6a, knockback: 0x9adcff
+          damage: '#ff8b3c', heal: '#7dff9e', freeze: '#9adcff',
+          stun: '#ffe066', rage: '#c26bf2', poison: '#8fcc6a', knockback: '#9adcff'
         };
-        this._addRing(e.x, e.y, e.radius, colors[e.effect] || 0xffffff);
+        this.fx.push({ kind: 'ring', x: e.x, y: e.y, radius: e.radius || 2, color: colors[e.effect] || '#ffffff', t: 0, dur: 0.65 });
         break;
       }
       case 'boom':
-        this._addBoom(e.x, e.y, e.radius);
+        this.fx.push({ kind: 'boom', x: e.x, y: e.y, radius: e.radius || 1.2, t: 0, dur: 0.5 });
         break;
       case 'chainFx':
-        this._addLine(e.x1, e.y1, e.x2, e.y2, 0xffe066);
+        this.fx.push({ kind: 'line', x: e.x1, y: e.y1, x2: e.x2, y2: e.y2, color: '#ffe066', t: 0, dur: 0.3 });
         break;
       case 'healFx':
-        this._addHeal(e.x, e.y);
+        this.fx.push({ kind: 'heal', x: e.x, y: e.y, t: 0, dur: 0.9 });
         break;
-      case 'death': {
-        this._removeEntity(e.id);
-        this._addBoom(e.x, e.y, 0.9, 0xd8d8d8);
+      case 'death':
+        this.fx.push({ kind: 'boom', x: e.x, y: e.y, radius: 0.9, color: 'rgba(200,200,200,0.8)', t: 0, dur: 0.45 });
         break;
-      }
       case 'hit': {
         if (e.kind === 'damage' && e.amount > 1) {
-          const ent = this.entities.get(e.id);
-          if (ent) this._addFloating(ent.group.position.x, ent.group.position.y + 2.2, Math.round(e.amount), '#ffd0d0');
+          const ent = this._entityPos(e.id);
+          if (ent) this.floating.push({ x: ent.x, y: ent.y + 1.4, text: String(Math.round(e.amount)), color: '#ffd0d0', t: 0, dur: 0.9 });
         }
         break;
       }
-      case 'towerDown': {
-        const ent = this.entities.get(e.id);
-        if (ent) {
-          this._addBoom(ent.group.position.x, ent.group.position.z, 3.2, 0xffb03c);
-        }
+      case 'towerDown':
+        this.fx.push({ kind: 'boom', x: e.x !== undefined ? e.x : 0, y: e.y !== undefined ? e.y : 0, radius: 3.2, color: '#ffb03c', t: 0, dur: 0.7 });
         break;
-      }
-      case 'chargeFx': {
-        this._addRing(e.x, e.y, 1.6, 0xffe066);
+      case 'chargeFx':
+        this.fx.push({ kind: 'chargeFx', x: e.x, y: e.y, radius: 1.6, color: '#ffe066', t: 0, dur: 0.5 });
         break;
-      }
+      case 'kingActivate':
+        this.fx.push({ kind: 'text', x: 0, y: 0, text: '⚔️ Главная башня проснулась!', color: '#ffe066', t: 0, dur: 1.2 });
+        break;
+      case 'crit':
+        this.fx.push({ kind: 'text', x: e.x, y: e.y, text: 'КРИТ!', color: '#ff9c3c', t: 0, dur: 0.8 });
+        break;
+      case 'dodge':
+        this.fx.push({ kind: 'text', x: 0, y: 0, text: 'Мимо!', color: '#9adcff', t: 0, dur: 0.7 });
+        break;
+      case 'revive':
+        this.fx.push({ kind: 'chargeFx', x: e.x, y: e.y, radius: 1.4, color: '#c26bf2', t: 0, dur: 0.8 });
+        break;
       default:
         break;
     }
   }
 
-  _removeEntity(id) {
-    const ent = this.entities.get(id);
-    if (!ent) return;
-    this.scene.remove(ent.group);
-    this.entities.delete(id);
-  }
-
-  _addRing(x, y, radius, color) {
-    const mesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.85, 1, 40),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 0.12, y);
-    this.scene.add(mesh);
-    this.fx.push({ kind: 'ring', mesh, t: 0, dur: 0.65, scale: radius });
-  }
-
-  _addBoom(x, y, radius, color = 0xff8b3c) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 14, 10),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false })
-    );
-    mesh.position.set(x, 1.1, y);
-    this.scene.add(mesh);
-    this.fx.push({ kind: 'boom', mesh, t: 0, dur: 0.5, scale: radius });
-  }
-
-  _addLine(x1, y1, x2, y2, color) {
-    const pts = [new THREE.Vector3(x1, 1.6, y1), new THREE.Vector3(x2, 1.6, y2)];
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mesh = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
-    this.scene.add(mesh);
-    this.fx.push({ kind: 'line', mesh, t: 0, dur: 0.3 });
-  }
-
-  _addHeal(x, y) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.35, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0x7dff9e, transparent: true, opacity: 0.7, depthWrite: false })
-    );
-    mesh.position.set(x, 1.2, y);
-    this.scene.add(mesh);
-    this.fx.push({ kind: 'heal', mesh, t: 0, dur: 0.9 });
-  }
-
-  _addFloating(x, z3d, text, color) {
-    const div = document.createElement('div');
-    div.className = 'float-num';
-    div.textContent = text;
-    div.style.color = color;
-    this.fxLayer.appendChild(div);
-    this.floating.push({ div, x, y: z3d, t: 0, dur: 0.9 });
-  }
-
-  _updateFloating(dt) {
-    const width = this.renderer.domElement.clientWidth;
-    const height = this.renderer.domElement.clientHeight;
-    for (const f of this.floating) {
-      f.t += dt;
-      // проецируем точку мира (x, высота y, z=0) в экранные координаты
-      const world = new THREE.Vector3(f.x, f.y, 0);
-      world.project(this.camera);
-      const sx = (world.x * 0.5 + 0.5) * width;
-      const sy = (-world.y * 0.5 + 0.5) * height - f.t * 46;
-      f.div.style.transform = `translate(${sx}px, ${sy}px) translate(-50%,-50%)`;
-      f.div.style.opacity = String(Math.max(0, 1 - f.t / f.dur));
-    }
-    this.floating = this.floating.filter((f) => {
-      if (f.t >= f.dur) {
-        f.div.remove();
-        return false;
-      }
-      return true;
-    });
+  _entityPos(id) {
+    for (const u of this.battle.units || []) if (u.id === id) return u;
+    for (const tw of this.battle.towers || []) if (tw.id === id) return tw;
+    return null;
   }
 
   resize() {
     if (this._disposed) return;
     const w = this.container.clientWidth || 400;
     const h = this.container.clientHeight || 700;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(h * dpr);
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
   }
 
   dispose() {
     this._disposed = true;
     window.removeEventListener('resize', this._onResize);
-    const el = this.renderer.domElement;
     for (const [type, fn, opts] of this._inputHandlers || []) {
-      el.removeEventListener(type, fn, opts);
+      this.canvas.removeEventListener(type, fn, opts);
     }
     this._inputHandlers = [];
-    this.renderer.dispose();
-    el.remove();
-    this.fxLayer.remove();
+    this.canvas.remove();
   }
 }

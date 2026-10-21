@@ -2,7 +2,7 @@
   "name": "battle-cards-royale",
   "private": true,
   "version": "1.0.0",
-  "description": "Мобильная карточная 3D-битва в духе Clash Royale: все архетипы карт, редактор карт с абилками и встроенный 3D-редактор моделей",
+  "description": "Мобильная карточная битва в духе Clash Royale: ростер карт, рисование карт от руки с анимацией, сетевой бой 1×1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,9 +11,7 @@
     "cap:sync": "npm run build && npx cap sync android",
     "apk": "npm run build && npx cap add android && npx cap sync android && cd android && ./gradlew assembleDebug"
   },
-  "dependencies": {
-    "three": "^0.158.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@capacitor/cli": "^6.1.2",
     "jsdom": "^30.1.3",

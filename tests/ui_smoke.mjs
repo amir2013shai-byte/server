@@ -194,13 +194,21 @@ step('своя половина: заклинание тоже ставится'
   if (app.battle.teams.player.elixir >= before) throw new Error('заклинание на своей половине не применилось');
 });
 
-step('вражеская половина отклоняется', () => {
+step('вражеская половина отклоняется для войск, но не для заклинаний', () => {
   app.battle.teams.player.elixir = 10;
-  const id = handIds()[0];
+  const troopId = app.cards().find((c) => c.type === 'troop' && !c.hidden).id;
   const before = { units: app.battle.units.length, elixir: app.battle.teams.player.elixir };
-  app._tryDeploy(id, 0, 8);
+  app._tryDeploy(troopId, 0, 8);
   if (app.battle.units.length !== before.units) throw new Error('юнит высадился на вражеской половине!');
   if (app.battle.teams.player.elixir !== before.elixir) throw new Error('эликсир потрачен на вражеской половине!');
+  // заклинание на вражеской половине — МОЖНО
+  const spell = app.cards().find((c) => c.type === 'spell' && !c.hidden);
+  if (spell) {
+    app.battle.teams.player.elixir = 10;
+    const e0 = app.battle.teams.player.elixir;
+    app._tryDeploy(spell.id, 0, 8);
+    if (app.battle.teams.player.elixir >= e0) throw new Error('заклинание на вражеской половине не применилось!');
+  }
 });
 
 step('тап по карте выбирает её', () => {
@@ -285,6 +293,7 @@ step('2D-фолбэк: клик по своей половине высажив�
 // ——— новые фичи: баланс, шаринг, аккаунты, друзья, кланы ———
 
 const { encodeCard, decodeCard } = await import('../src/share.js');
+const { addCardCopies, canUpgrade, cardLevel } = await import('../src/progress.js');
 const { accounts, ADMIN_NAME } = await import('../src/accounts.js');
 const ADMIN_PASSWORD = 'Kl3sh-Royal-2026!'; // пароль админа для тестов
 
@@ -385,6 +394,60 @@ step('админ: вход и смена баланса', () => {
   // возвращаем дефолт, чтобы не портить другие проверки
   accounts.setBalance({ base: 520 });
   app.balanceParams = accounts.getBalance();
+});
+
+step('админ: добавление глобальной карты для всех игроков', () => {
+  app.showMenu();
+  click($('#m-admin'));
+  if (!$('#g-create') || !$('#g-import')) throw new Error('нет кнопок глобальных карт');
+  const code = encodeCard({
+    name: 'Глобальный герой', desc: 'Для всех', rarity: 'epic', type: 'troop',
+    cost: 4, count: 1, hp: 900, damage: 120, hitSpeed: 1, range: 1, speed: 1,
+    targets: 'ground', flying: false, buildingOnly: false, splash: 0,
+    abilities: [], spell: null, building: null,
+    model: { parts: [{ shape: 'box', pos: [0, 1, 0], rot: [0, 0, 0], scale: [1, 1, 1], color: '#f0f', emissive: '#000' }] }
+  });
+  window.prompt = () => code;
+  click($('#g-import'));
+  const g = accounts.globalCards();
+  if (!g.some((c) => c.name === 'Глобальный герой')) throw new Error('глобальная карта не добавилась');
+  // карта видна в общем списке карт
+  if (!app.cards().some((c) => c.name === 'Глобальный герой')) throw new Error('глобальная карта не видна в cards()');
+});
+
+step('прокачка: апгрейд требует копии карты', () => {
+  accounts.logout();
+  app.showMenu();
+  click($('#m-progress'));
+  const upBtn = $('[data-up]');
+  if (!upBtn) throw new Error('нет кнопок улучшения');
+  const id = upBtn.dataset.up;
+  const p = app.progress;
+  p.gold = 99999;
+  const lvlBefore = cardLevel(p, id);
+  click(upBtn);
+  if (cardLevel(p, id) !== lvlBefore) throw new Error('апгрейд прошёл без копий!');
+  // даём копии — апгрейд должен сработать
+  addCardCopies(p, id, canUpgrade(p, id).needCopies);
+  app.showProgress();
+  click($(`[data-up="${id}"]`));
+  if (cardLevel(p, id) !== lvlBefore + 1) throw new Error('апгрейд не прошёл с копиями');
+});
+
+step('сундук: вскрытие даёт золото и копии карт', () => {
+  const p = app.progress;
+  const goldBefore = p.gold;
+  const copiesBefore = JSON.stringify(p.cardCopies || {});
+  p.chests = [{ type: 'wood', id: 'test_chest_1', icon: '📦' }];
+  app.showProgress();
+  click($('[data-chest]'));
+  const stage = window.document.querySelector('#chest-stage');
+  if (!stage) throw new Error('нет экрана вскрытия сундука');
+  click(stage); // открыть
+  if (p.gold <= goldBefore) throw new Error('золото не начислилось');
+  if (JSON.stringify(p.cardCopies || {}) === copiesBefore) throw new Error('копии не начислились');
+  const done = window.document.querySelector('#chest-done');
+  if (done) click(done);
 });
 
 step('UI: экран друзей открывается', () => {

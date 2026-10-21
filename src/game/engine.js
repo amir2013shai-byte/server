@@ -108,6 +108,8 @@ export class Battle {
           cooldown: Math.random() * 0.5,
           alive: true,
           isTower: true,
+          // главная башня спит, пока её не разбудят (урон или гибель боковой)
+          activated: kind !== 'king',
           frozenUntil: 0,
           slowUntil: 0,
           slowFactor: 1
@@ -828,6 +830,8 @@ export class Battle {
     }
     entity.hp -= amount;
     this.emit({ type: 'hit', id: entity.id, kind: 'damage', amount });
+    // главная башня просыпается, когда по ней бьют
+    if (entity.isTower && entity.kind === 'king') this._activateKing(entity);
     // шипы: возвращаем часть урона атакующему
     if (entity.card && entity.card.abilities && opts.source) {
       for (const ab of entity.card.abilities) {
@@ -872,6 +876,9 @@ export class Battle {
       const enemyTeam = entity.team === 'player' ? 'ai' : 'player';
       this.crowns[enemyTeam] += 1;
       this.emit({ type: 'towerDown', id: entity.id, team: entity.team, kind });
+      // падение боковой башни будит главную башню той же команды
+      const king = this.towers.find((t) => t.team === entity.team && t.kind === 'king');
+      if (king) this._activateKing(king);
       return;
     }
 
@@ -915,6 +922,8 @@ export class Battle {
 
   _updateTower(tw, dt) {
     if (this.time < tw.frozenUntil) return;
+    // спящая главная башня не стреляет
+    if (tw.kind === 'king' && !tw.activated) return;
     tw.cooldown -= dt;
     if (tw.cooldown > 0) return;
 
@@ -934,10 +943,20 @@ export class Battle {
 
   // ——— выбор места высадки игроком ———
 
-  canPlaceAt(x, y, team) {
+  // card опционален: заклинания можно кидать на ОБЕ половины, войска/здания — только на свою.
+  canPlaceAt(x, y, team, card) {
     if (Math.abs(x) > ARENA.halfW - 0.2) return false;
     if (Math.abs(y) > ARENA.halfH - 0.2) return false;
+    if (card && card.type === 'spell') return true;
     const sideOk = team === 'player' ? y <= -ARENA.riverY : y >= ARENA.riverY;
     return sideOk;
+  }
+
+  // пробуждение главной башни: получила урон или пала боковая башня её команды
+  _activateKing(tower) {
+    if (!tower || tower.kind !== 'king' || tower.activated || !tower.alive) return;
+    tower.activated = true;
+    tower.cooldown = Math.min(tower.cooldown, 0.3);
+    this.emit({ type: 'kingActivate', id: tower.id, team: tower.team });
   }
 }
