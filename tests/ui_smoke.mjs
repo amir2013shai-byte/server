@@ -123,6 +123,8 @@ console.log('— бой —');
 step('бой стартует', () => {
   click($('#back'));
   click($('#m-battle'));
+  if (!$('#b-normal') || !$('#b-friendly')) throw new Error('нет меню режимов боя');
+  click($('#b-normal')); // стартовая колода сбалансирована
   if (!$('#b-hand') || !$('#b-timer')) throw new Error('HUD не отрисован');
 });
 
@@ -278,6 +280,118 @@ step('2D-фолбэк: клик по своей половине высажив�
   if (app.battle.teams.player.elixir >= before) {
     throw new Error('клик по 2D-арене не высадил карту');
   }
+});
+
+// ——— новые фичи: баланс, шаринг, аккаунты, друзья, кланы ———
+
+const { encodeCard, decodeCard } = await import('../src/share.js');
+const { accounts, ADMIN_NAME } = await import('../src/accounts.js');
+const ADMIN_PASSWORD = 'Kl3sh-Royal-2026!'; // пароль админа для тестов
+
+step('баланс: огромный HP делает карту дисбалансной', () => {
+  const card = { cost: 3, type: 'troop', hp: 100, damage: 50, hitSpeed: 1, range: 1, speed: 1, count: 1, abilities: [] };
+  const before = app.balanceOf(card);
+  const huge = { ...card, hp: 99999 };
+  const after = app.balanceOf(huge);
+  if (!before.ok) throw new Error('скромная карта должна быть сбалансирована');
+  if (after.ok) throw new Error('огромный HP должен ломать баланс');
+});
+
+step('обычный бой блокирует дисбалансную колоду', () => {
+  // готовим заведомо дисбалансную карту
+  const bad = {
+    id: 'custom_bad_test', name: 'Читер', desc: '', rarity: 'common', type: 'troop',
+    cost: 1, count: 1, hp: 99999, damage: 9999, hitSpeed: 0.2, range: 10, speed: 3,
+    splash: 4, sight: 5.5, targets: 'both', flying: true, buildingOnly: false,
+    hidden: false, custom: true, abilities: [{ type: 'shield', hp: 9999 }, { type: 'chain', bounces: 9, damage: 2 }],
+    spell: null, building: null,
+    model: { parts: [{ shape: 'box', pos: [0, 0.8, 0], rot: [0, 0, 0], scale: [1, 1, 1], color: '#f00', emissive: '#000' }] }
+  };
+  app.customCards = [...app.customCards.filter((c) => c.id !== bad.id), bad];
+  app.deck = ['custom_bad_test', 'knight', 'archers', 'goblins'];
+  app._persist();
+  if (!app.deckIssues().length) throw new Error('deckIssues не видит дисбаланс');
+  app.startBattle('normal'); // обязан отказать
+  if (app.battle) throw new Error('обычный бой стартовал с дисбалансной колодой');
+});
+
+step('дружеский бой: предупреждение о дисбалансе', () => {
+  app.showMenu();
+  click($('#m-battle'));
+  click($('#b-normal'));
+  const ov = $('.overlay');
+  if (!ov || !/Дисбаланс/i.test(ov.textContent)) throw new Error('нет предупреждения о дисбалансе');
+  click([...ov.querySelectorAll('[data-i]')].find((b) => /дружеск/i.test(b.textContent)));
+});
+
+await sleep(40);
+
+step('дружеский бой стартовал с дисбалансной колодой', () => {
+  if (!app.battle) throw new Error('дружеский бой не стартовал');
+  if (app.battleMode !== 'friendly') throw new Error('режим не friendly');
+});
+
+step('шаринг: код карты восстанавливает данные', () => {
+  const card = app.cards().find((c) => c.id === 'knight');
+  const code = encodeCard(card);
+  if (!code.startsWith('BC1.')) throw new Error('нет префикса BC1');
+  const back = decodeCard(code);
+  if (!back) throw new Error('код не декодируется');
+  if (back.name !== card.name) throw new Error('имя потерялось');
+  if (back.hp !== card.hp) throw new Error('hp потерялось');
+  if (!back.custom || !back.id.startsWith('shared_')) throw new Error('импорт должен быть своей картой');
+});
+
+step('аккаунты: регистрация и вход', () => {
+  const r = accounts.register('Тестер', '1234');
+  if (!r.ok) throw new Error('регистрация: ' + r.error);
+  if (!accounts.current() || accounts.current().name !== 'Тестер') throw new Error('сессия не создалась');
+  accounts.logout();
+  if (accounts.current()) throw new Error('логаут не сработал');
+  const l = accounts.login('Тестер', '1234');
+  if (!l.ok) throw new Error('вход: ' + l.error);
+});
+
+step('друзья: добавление по имени', () => {
+  accounts.saveActive(app.deck, app.customCards);
+  const r = accounts.addFriend('Витязь');
+  if (!r.ok) throw new Error('добавление: ' + r.error);
+  if (!accounts.friends().some((f) => f.name === 'Витязь')) throw new Error('друг не в списке');
+  accounts.removeFriend('Витязь');
+  if (accounts.friends().some((f) => f.name === 'Витязь')) throw new Error('друг не удалился');
+});
+
+step('кланы: создание, вступление, выход', () => {
+  const r = accounts.createClan('Короли Арены', 'KNG');
+  if (!r.ok) throw new Error('создание: ' + r.error);
+  if (!accounts.myClan() || accounts.myClan().tag !== 'KNG') throw new Error('мой клан не найден');
+  accounts.leaveClan();
+  if (accounts.myClan()) throw new Error('выход не сработал');
+});
+
+step('админ: вход и смена баланса', () => {
+  accounts.logout();
+  const l = accounts.login(ADMIN_NAME, ADMIN_PASSWORD);
+  if (!l.ok) throw new Error('вход админа: ' + l.error);
+  if (!accounts.current().isAdmin) throw new Error('флаг админа не стоит');
+  app.showMenu();
+  if (!$('#m-admin')) throw new Error('кнопки админа нет в меню');
+  click($('#m-admin'));
+  const baseInput = window.document.querySelector('[data-p="base"]');
+  if (!baseInput) throw new Error('нет поля базового бюджета');
+  baseInput.value = '600';
+  click($('#p-save'));
+  if (accounts.getBalance().base !== 600) throw new Error('бюджет не сохранился');
+  // возвращаем дефолт, чтобы не портить другие проверки
+  accounts.setBalance({ base: 520 });
+  app.balanceParams = accounts.getBalance();
+});
+
+step('UI: экран друзей открывается', () => {
+  accounts.logout();
+  app.showMenu();
+  click($('#m-friends'));
+  if (!$('#my-code') && !$('#go-auth')) throw new Error('экран друзей пуст');
 });
 
 console.log('— итог —');

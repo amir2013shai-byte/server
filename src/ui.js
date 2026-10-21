@@ -1,6 +1,9 @@
 // UI приложения: меню, коллекция, конструктор колоды, редактор карт, бой, настройки.
 import { storage } from './storage.js';
 import { ALL_CARDS, COLLECTION_IDS, RARITY, getCard, withCustom } from './data/cards.js';
+import { cardBalance, DEFAULT_BALANCE } from './data/balance.js';
+import { accounts } from './accounts.js';
+import { encodeCard, decodeCard, copyText } from './share.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -83,8 +86,13 @@ export class App {
     this.battle = null;
     this.battleView = null;
     this.battleRaf = 0;
+    this.battleMode = 'normal';
     this.allCards = withCustom(this.customCards);
+    this.balanceParams = accounts.getBalance();
+    accounts.ensureGuest(this.deck, this.customCards);
     this.showMenu();
+    // импорт карты по ссылке #card=BC1...
+    this._checkHashImport();
   }
 
   _starterDeck() {
@@ -95,6 +103,40 @@ export class App {
   cards() {
     this.allCards = withCustom(this.customCards);
     return this.allCards;
+  }
+
+  // ————— профиль/баланс —————
+
+  _persist() {
+    storage.setDeck(this.deck);
+    storage.setCustomCards(this.customCards);
+    accounts.saveActive(this.deck, this.customCards);
+  }
+
+  balanceOf(card) {
+    return cardBalance(card, this.balanceParams);
+  }
+
+  deckIssues() {
+    return this.deck
+      .map((id) => this.cards().find((c) => c.id === id))
+      .filter((c) => c && !this.balanceOf(c).ok);
+  }
+
+  _checkHashImport() {
+    try {
+      const h = location.hash || '';
+      if (!h.startsWith('#card=')) return;
+      const draft = decodeCard(decodeURIComponent(h.slice(6)));
+      history.replaceState(null, '', location.pathname + location.search);
+      if (!draft) return;
+      this.confirmModal('Импорт карты', `Получена карта «${draft.name}». Открыть её в редакторе?`, [
+        { label: 'Открыть', value: true, primary: true },
+        { label: 'Позже', value: false }
+      ]).then((ok) => {
+        if (ok) this.showCardEditor(null, draft);
+      });
+    } catch { /* мусорный hash */ }
   }
 
   // ————— утилиты UI —————
@@ -143,6 +185,8 @@ export class App {
 
   showMenu() {
     const stats = storage.getStats();
+    const user = accounts.current();
+    const clan = accounts.myClan();
     this.setScreen(`
       <div class="screen">
         <div class="screen-scroll">
@@ -151,11 +195,20 @@ export class App {
             <div class="menu-title">Королевские Схватки</div>
             <div class="menu-sub">3D-битвы • Свои карты • Редактор моделей</div>
           </div>
+          <button class="account-bar" id="m-account">
+            ${user
+              ? `👤 <b>${escapeHtml(user.name)}</b> ${user.isAdmin ? '• <span style="color:#f0d890">админ</span>' : ''} • 🏆 ${user.trophies || 0}`
+              : '👤 Гость — <b>войти в аккаунт</b>'}
+            ${clan ? ` • 🛡 [${escapeHtml(clan.tag)}]` : ''}
+          </button>
           <div class="menu-buttons">
             <button class="btn btn-primary btn-big" id="m-battle">⚔️ В бой!</button>
             <button class="btn btn-blue" id="m-deck">🃏 Моя колода (${this.deck.length}/8)</button>
             <button class="btn btn-ghost" id="m-cards">📚 Коллекция карт</button>
             <button class="btn btn-ghost" id="m-editor">🛠 Редактор карт</button>
+            <button class="btn btn-ghost" id="m-friends">👥 Друзья (${accounts.friends().length})</button>
+            <button class="btn btn-ghost" id="m-clan">🛡 Клан${clan ? ` [${escapeHtml(clan.tag)}]` : ''}</button>
+            ${user && user.isAdmin ? '<button class="btn btn-chip" id="m-admin">⚙️ Админ-панель</button>' : ''}
             <button class="btn btn-ghost" id="m-settings">⚙️ Настройки</button>
             ${/^https?:$/.test(location.protocol) ? '<button class="btn btn-primary" id="m-apk">📥 Скачать APK на телефон</button>' : ''}
           </div>
@@ -166,13 +219,217 @@ export class App {
         </div>
       </div>
     `);
-    this.root.querySelector('#m-battle').onclick = () => { this.sfx.play('ui'); this.startBattle(); };
+    this.root.querySelector('#m-battle').onclick = () => { this.sfx.play('ui'); this.showBattleMenu(); };
     this.root.querySelector('#m-deck').onclick = () => { this.sfx.play('ui'); this.showDeck(); };
     this.root.querySelector('#m-cards').onclick = () => { this.sfx.play('ui'); this.showCollection(); };
     this.root.querySelector('#m-editor').onclick = () => { this.sfx.play('ui'); this.showCardList(); };
+    this.root.querySelector('#m-friends').onclick = () => { this.sfx.play('ui'); this.showFriends(); };
+    this.root.querySelector('#m-clan').onclick = () => { this.sfx.play('ui'); this.showClan(); };
     this.root.querySelector('#m-settings').onclick = () => { this.sfx.play('ui'); this.showSettings(); };
+    this.root.querySelector('#m-account').onclick = () => {
+      this.sfx.play('ui');
+      if (accounts.current()) this.showAccount();
+      else this.showAuth();
+    };
+    const adminBtn = this.root.querySelector('#m-admin');
+    if (adminBtn) adminBtn.onclick = () => { this.sfx.play('ui'); this.showAdmin(); };
     const apkBtn = this.root.querySelector('#m-apk');
     if (apkBtn) apkBtn.onclick = () => { this.sfx.play('ui'); location.href = './battle-cards-royale-1.0.apk'; };
+  }
+
+  // ————— вход/регистрация —————
+
+  showAuth(mode = 'login') {
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">Аккаунт</div>
+            <div class="top-sub">Прогресс сохраняется на устройстве</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="filter-row">
+            <button class="btn btn-chip ${mode === 'login' ? 'active' : ''}" data-m="login">Вход</button>
+            <button class="btn btn-chip ${mode === 'register' ? 'active' : ''}" data-m="register">Регистрация</button>
+          </div>
+          <div class="form-section">
+            <h3>${mode === 'login' ? 'Вход в аккаунт' : 'Новый аккаунт'}</h3>
+            <div class="form-grid">
+              <div class="form-field full"><label>Имя</label><input class="input" id="a-name" maxlength="24" placeholder="Например, Рыцарь2026"></div>
+              <div class="form-field full"><label>Пароль</label><input class="input" id="a-pass" type="password" maxlength="64" placeholder="Минимум 4 символа"></div>
+            </div>
+            <button class="btn btn-primary btn-block btn-big" id="a-go" style="margin-top:12px">
+              ${mode === 'login' ? '🔓 Войти' : '✨ Создать аккаунт'}
+            </button>
+            <div class="muted mt12" style="text-align:center">
+              Аккаунты локальные (офлайн-игра без сервера):<br>каждый профиль хранится на этом телефоне.
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-block" id="a-guest">Продолжить как гость</button>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelectorAll('[data-m]').forEach((b) => {
+      b.onclick = () => this.showAuth(b.dataset.m);
+    });
+    this.root.querySelector('#a-guest').onclick = () => {
+      accounts.logout();
+      this.showMenu();
+    };
+    this.root.querySelector('#a-go').onclick = () => {
+      const name = this.root.querySelector('#a-name').value;
+      const pw = this.root.querySelector('#a-pass').value;
+      const r = mode === 'login' ? accounts.login(name, pw) : accounts.register(name, pw);
+      if (!r.ok) {
+        this.toast(r.error);
+        return;
+      }
+      this._applyProfileFromAccount(r.user);
+      this.toast(mode === 'login' ? `С возвращением, ${r.user.name}!` : `Аккаунт ${r.user.name} создан!`);
+      this.showMenu();
+    };
+  }
+
+  _applyProfileFromAccount(user) {
+    // профиль аккаунта становится активным (storage + память)
+    const prof = (user && user.profile) || { deck: null, customCards: [] };
+    this.customCards = sanitizeCards(prof.customCards);
+    this.deck = sanitizeDeck(prof.deck);
+    if (!this.deck.length) this.deck = this._starterDeck();
+    this._persist();
+    this.cards();
+  }
+
+  showAccount() {
+    const u = accounts.current();
+    if (!u) return this.showAuth();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">Мой аккаунт</div>
+            <div class="top-sub">${escapeHtml(u.name)}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3>👤 ${escapeHtml(u.name)} ${u.isAdmin ? '<span style="color:#f0d890">• админ</span>' : ''}</h3>
+            <div class="info-list">
+              Трофеи: <b>🏆 ${u.trophies || 0}</b><br>
+              Побед: <b>${u.wins || 0}</b> из <b>${u.battles || 0}</b><br>
+              Код друга: <b class="friend-code">${u.friendCode}</b><br>
+              Клан: <b>${accounts.myClan() ? '[' + escapeHtml(accounts.myClan().tag) + '] ' + escapeHtml(accounts.myClan().name) : 'нет'}</b>
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Сменить пароль</h3>
+            <div class="form-grid">
+              <div class="form-field full"><label>Старый пароль</label><input class="input" id="p-old" type="password"></div>
+              <div class="form-field full"><label>Новый пароль</label><input class="input" id="p-new" type="password"></div>
+            </div>
+            <button class="btn btn-blue btn-block" id="p-save" style="margin-top:10px">Сменить пароль</button>
+          </div>
+          <button class="btn btn-ghost btn-block" id="logout" style="margin-bottom:30px">Выйти из аккаунта</button>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#p-save').onclick = () => {
+      const r = accounts.changePassword(
+        this.root.querySelector('#p-old').value,
+        this.root.querySelector('#p-new').value
+      );
+      this.toast(r.ok ? 'Пароль изменён' : r.error);
+    };
+    this.root.querySelector('#logout').onclick = async () => {
+      const ok = await this.confirmModal('Выйти из аккаунта?', 'Прогресс аккаунта сохранится на устройстве.', [
+        { label: 'Выйти', value: true, primary: true },
+        { label: 'Отмена', value: false }
+      ]);
+      if (!ok) return;
+      accounts.saveActive(this.deck, this.customCards);
+      accounts.logout();
+      this.toast('Вы вышли из аккаунта');
+      this.showMenu();
+    };
+  }
+
+  // ————— выбор режима боя —————
+
+  showBattleMenu() {
+    const issues = this.deckIssues();
+    const friends = accounts.friends();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">В бой!</div>
+            <div class="top-sub">Выберите режим</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <button class="btn btn-primary btn-big btn-block" id="b-normal" style="margin-bottom:12px">
+            ⚔️ Обычный бой
+            <div class="muted" style="font-size:11px;margin-top:4px">
+              ${issues.length
+                ? `<span style="color:#ff9c9c">⚠ В колоде дисбалансные карты: ${issues.map((c) => escapeHtml(c.name)).join(', ')}</span>`
+                : 'Только сбалансированные карты • соперник — ИИ'}
+            </div>
+          </button>
+          <button class="btn btn-blue btn-big btn-block" id="b-friendly" style="margin-bottom:16px">
+            🤝 Дружеский бой
+            <div class="muted" style="font-size:11px;margin-top:4px">Можно играть дисбалансными картами</div>
+          </button>
+          <div class="form-section">
+            <h3>Дружеский бой с другом</h3>
+            ${friends.length
+              ? `<div class="row wrap">${friends.map((f) => `
+                  <button class="btn btn-chip" data-friend="${escapeHtml(f.name)}">🤝 ${escapeHtml(f.name)}</button>`).join('')}</div>`
+              : '<div class="muted">Список друзей пуст. Добавьте друзей в разделе «👥 Друзья».</div>'}
+            <button class="btn btn-ghost btn-block" id="b-friend-rand" style="margin-top:10px">🎲 Дружеский бой со случайным соперником</button>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#b-normal').onclick = () => {
+      const bad = this.deckIssues();
+      if (this.deck.length < 4) {
+        this.toast('В колоде должно быть минимум 4 карты');
+        return;
+      }
+      if (bad.length) {
+        this.confirmModal(
+          'Дисбалансные карты',
+          `В колоде карты без баланса: ${bad.map((c) => `«${c.name}»`).join(', ')}. Они разрешены только в дружеском бою.`,
+          [
+            { label: 'Играть дружеский', value: 'friendly', primary: true },
+            { label: 'Править колоду', value: 'deck' },
+            { label: 'Отмена', value: null }
+          ]
+        ).then((v) => {
+          if (v === 'friendly') this.startBattle('friendly');
+          else if (v === 'deck') this.showDeck();
+        });
+        return;
+      }
+      this.sfx.play('ui');
+      this.startBattle('normal');
+    };
+    this.root.querySelector('#b-friendly').onclick = () => { this.sfx.play('ui'); this.startBattle('friendly'); };
+    this.root.querySelector('#b-friend-rand').onclick = () => { this.sfx.play('ui'); this.startBattle('friendly', null); };
+    this.root.querySelectorAll('[data-friend]').forEach((el) => {
+      el.onclick = () => {
+        const f = accounts.friends().find((x) => x.name === el.dataset.friend);
+        this.sfx.play('ui');
+        this.startBattle('friendly', f || null);
+      };
+    });
   }
 
   // ————— коллекция —————
@@ -202,6 +459,7 @@ export class App {
             ${filtered.map((c) => `
               <div class="card-tile rarity-${c.rarity} ${this.deck.includes(c.id) ? 'in-deck' : ''}" data-id="${c.id}">
                 <div class="card-cost">${c.cost}</div>
+                ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                 ${this.cardIconHtml(c)}
                 <div class="card-name">${c.name}</div>
               </div>`).join('')}
@@ -248,9 +506,18 @@ export class App {
         </div>
         <p style="color:#b8c0d8; margin:12px 0">${c.desc || ''}</p>
         <div class="info-list">${stats}</div>
+        ${(() => {
+          const bal = this.balanceOf(c);
+          return `<div class="mt12" style="font-size:12px">
+            <b style="color:#f0d890">Баланс:</b> бюджет <b>${bal.budget}</b> • потрачено <b>${bal.spent}</b> •
+            остаток <b style="color:${bal.ok ? '#7dff9e' : '#ff7d7d'}">${bal.remaining > 0 ? '+' : ''}${bal.remaining}</b>
+            ${bal.ok ? '✅' : '⚠️ <span style="color:#ff9c9c">только для дружеского боя</span>'}
+          </div>`;
+        })()}
         ${abilities.length ? `<div class="mt12"><b style="color:#f0d890">Абилки:</b> ${abilities.join(', ')}</div>` : ''}
         <div class="row mt16" style="flex-wrap:wrap">
           <button class="btn btn-primary" data-a="deck">${this.deck.includes(c.id) ? 'Убрать из колоды' : 'В колоду'}</button>
+          <button class="btn btn-blue" data-a="share">🔗 Поделиться</button>
           <button class="btn btn-ghost" data-a="close">Закрыть</button>
         </div>
       </div>`;
@@ -258,6 +525,10 @@ export class App {
       const b = ev.target.closest('[data-a]');
       if (!b) return;
       if (b.dataset.a === 'close') return ov.remove();
+      if (b.dataset.a === 'share') {
+        this.showShareModal(c);
+        return;
+      }
       if (b.dataset.a === 'deck') {
         if (this.deck.includes(c.id)) {
           this.deck = this.deck.filter((x) => x !== c.id);
@@ -268,7 +539,7 @@ export class App {
           this.deck.push(c.id);
           this.toast('Карта добавлена в колоду');
         }
-        storage.setDeck(this.deck);
+        this._persist();
         ov.remove();
         this.showCollection();
       }
@@ -301,6 +572,7 @@ export class App {
                 return c
                   ? `<div class="deck-slot filled rarity-${c.rarity}" data-drop="${c.id}">
                        <div class="card-cost">${c.cost}</div>
+                       ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                        ${this.cardIconHtml(c)}
                        <div>${c.name}</div>
                      </div>`
@@ -317,6 +589,7 @@ export class App {
               ${all.map((c) => `
                 <div class="card-tile rarity-${c.rarity} ${this.deck.includes(c.id) ? 'in-deck' : ''}" data-id="${c.id}">
                   <div class="card-cost">${c.cost}</div>
+                  ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                   ${this.cardIconHtml(c)}
                   <div class="card-name">${c.name}</div>
                 </div>`).join('')}
@@ -332,18 +605,18 @@ export class App {
           const i = Math.floor(Math.random() * pool.length);
           this.deck.push(pool.splice(i, 1)[0]);
         }
-        storage.setDeck(this.deck);
+        this._persist();
         this.toast('Случайная колода готова!');
         render();
       };
       this.root.querySelector('#d-clear').onclick = () => {
         this.deck = [];
-        storage.setDeck(this.deck);
+        this._persist();
         render();
       };
       this.root.querySelector('#d-starter').onclick = () => {
         this.deck = this._starterDeck();
-        storage.setDeck(this.deck);
+        this._persist();
         render();
       };
       this.root.querySelectorAll('[data-id]').forEach((el) => {
@@ -357,14 +630,14 @@ export class App {
           } else {
             this.deck.push(id);
           }
-          storage.setDeck(this.deck);
+          this._persist();
           render();
         };
       });
       this.root.querySelectorAll('[data-drop]').forEach((el) => {
         el.onclick = () => {
           this.deck = this.deck.filter((x) => x !== el.dataset.drop);
-          storage.setDeck(this.deck);
+          this._persist();
           render();
         };
       });
@@ -384,6 +657,7 @@ export class App {
             <div class="top-title">Редактор карт</div>
             <div class="top-sub">Свои карты и абилки</div>
           </div>
+          <button class="btn btn-ghost" id="import">📥</button>
           <button class="btn btn-primary" id="new">＋ Новая</button>
         </div>
         <div class="screen-scroll">
@@ -392,6 +666,7 @@ export class App {
             ${list.map((c) => `
               <div class="card-tile rarity-${c.rarity}" data-edit="${c.id}">
                 <div class="card-cost">${c.cost}</div>
+                ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                 ${this.cardIconHtml(c)}
                 <div class="card-name">${c.custom ? '✏️ ' : ''}${c.name}</div>
               </div>`).join('')}
@@ -401,6 +676,7 @@ export class App {
     `);
     this.root.querySelector('#back').onclick = () => this.showMenu();
     this.root.querySelector('#new').onclick = () => this.showCardEditor(null);
+    this.root.querySelector('#import').onclick = () => this.showImportModal();
     this.root.querySelectorAll('[data-edit]').forEach((el) => {
       el.onclick = () => this.showCardEditor(el.dataset.edit);
     });
@@ -481,6 +757,13 @@ export class App {
               </div>
             </div>
 
+            <div class="form-section" id="bal-section">
+              <h3>⚖️ Баланс</h3>
+              <div id="bal-meter"></div>
+              <div class="muted" style="margin-top:8px">Бюджет — число, из которого вычитается цена HP, урона и механик.
+              Дисбалансные карты можно играть только в дружеском бою.</div>
+            </div>
+
             ${draft.type === 'troop' || draft.type === 'building' ? `
             <div class="form-section">
               <h3>Характеристики</h3>
@@ -540,6 +823,7 @@ export class App {
               <h3>3D-модель</h3>
               <div class="muted mb12">Простой редактор моделей: примитивы, цвета, размеры и повороты.</div>
               <button class="btn btn-blue btn-block" id="open-model">🧊 Открыть 3D-редактор</button>
+              <button class="btn btn-ghost btn-block" id="share-card" style="margin-top:8px">🔗 Поделиться картой</button>
             </div>
 
             <div class="row" style="margin:6px 0 30px">
@@ -575,8 +859,7 @@ export class App {
           if (ok) {
             this.customCards = this.customCards.filter((c) => c.id !== draft.id);
             this.deck = this.deck.filter((x) => x !== draft.id);
-            storage.setCustomCards(this.customCards);
-            storage.setDeck(this.deck);
+            this._persist();
             this.toast('Карта удалена');
             this.showCardList();
           }
@@ -645,6 +928,32 @@ export class App {
         });
       };
 
+      // живой счётчик баланса
+      const meterUI = () => {
+        const el = this.root.querySelector('#bal-meter');
+        if (!el) return;
+        const bal = cardBalance(draft, this.balanceParams);
+        const pct = Math.min(100, Math.round((100 * bal.spent) / Math.max(1, bal.budget)));
+        el.innerHTML = `
+          <div class="bal-row">
+            <span>Бюджет: <b>${bal.budget}</b></span>
+            <span>Потрачено: <b>${bal.spent}</b></span>
+            <span>Остаток: <b style="color:${bal.ok ? '#7dff9e' : '#ff7d7d'}">${bal.remaining > 0 ? '+' : ''}${bal.remaining}</b></span>
+            <span>${bal.ok ? '✅ Сбалансирована' : '⚠️ Дисбаланс'}</span>
+          </div>
+          <div class="bal-bar"><div class="bal-fill ${bal.ok ? '' : 'over'}" style="width:${pct}%"></div></div>
+          <div class="bal-parts">${bal.parts.slice(0, 10).map((p) => `${escapeHtml(p.label)}: −${p.value}`).join(' • ') || 'Пока ничего не стоит'}</div>
+          ${bal.ok ? '' : '<div class="bal-warn">⚠ Такую карту можно играть только в дружеском бою</div>'}
+        `;
+      };
+      this.root.oninput = () => { collect(); meterUI(); };
+      meterUI();
+
+      this.root.querySelector('#share-card').onclick = () => {
+        collect();
+        this.showShareModal(draft);
+      };
+
       const save = () => {
         collect();
         if (!draft.name.trim()) draft.name = 'Новая карта';
@@ -652,13 +961,387 @@ export class App {
         const idx = this.customCards.findIndex((c) => c.id === draft.id);
         if (idx >= 0) this.customCards[idx] = draft;
         else this.customCards.push(draft);
-        storage.setCustomCards(this.customCards);
+        this._persist();
         this.cards();
         this.toast(`Карта «${draft.name}» сохранена!`);
         this.showCardList();
       };
     };
     render();
+  }
+
+  // ————— обмен картами —————
+
+  showShareModal(card) {
+    const code = encodeCard(card);
+    const link = location.href.split('#')[0] + '#card=' + code;
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `
+      <div class="modal" style="text-align:left">
+        <h2>🔗 Поделиться картой</h2>
+        <p class="muted">«${escapeHtml(card.name)}» — отправьте код другу, он вставит его в «Импорт по коду».</p>
+        <textarea class="input" id="share-code" readonly style="width:100%;height:110px;font-size:11px;word-break:break-all">${code}</textarea>
+        <div class="row mt12" style="flex-wrap:wrap">
+          <button class="btn btn-primary" data-a="copy">📋 Копировать код</button>
+          <button class="btn btn-blue" data-a="sys">📤 Поделиться…</button>
+          <button class="btn btn-ghost" data-a="close">Закрыть</button>
+        </div>
+        <div class="muted mt12" style="font-size:11px;word-break:break-all">Ссылка: ${escapeHtml(link.slice(0, 80))}…</div>
+      </div>`;
+    ov.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'close') return ov.remove();
+      if (b.dataset.a === 'copy') {
+        const ok = await copyText(code);
+        this.toast(ok ? 'Код скопирован!' : 'Скопируйте код вручную');
+      }
+      if (b.dataset.a === 'sys') {
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: `Карта «${card.name}»`, text: code });
+          } else {
+            const ok = await copyText(code);
+            this.toast(ok ? 'Код скопирован!' : 'Скопируйте код вручную');
+          }
+        } catch { /* пользователь отменил */ }
+      }
+    });
+    document.body.appendChild(ov);
+  }
+
+  showImportModal() {
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `
+      <div class="modal" style="text-align:left">
+        <h2>📥 Импорт по коду</h2>
+        <p class="muted">Вставьте код карты (начинается с BC1.)</p>
+        <textarea class="input" id="imp-code" style="width:100%;height:110px;font-size:11px;word-break:break-all" placeholder="BC1.…"></textarea>
+        <div class="row mt12">
+          <button class="btn btn-primary" data-a="go">Импортировать</button>
+          <button class="btn btn-ghost" data-a="close">Отмена</button>
+        </div>
+      </div>`;
+    ov.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'close') return ov.remove();
+      const draft = decodeCard(ov.querySelector('#imp-code').value);
+      if (!draft) {
+        this.toast('Код не распознан');
+        return;
+      }
+      ov.remove();
+      this.toast(`Карта «${draft.name}» получена — сохраните её`);
+      this.showCardEditor(null, draft);
+    });
+    document.body.appendChild(ov);
+  }
+
+  // ————— друзья —————
+
+  showFriends() {
+    const user = accounts.current();
+    const friends = accounts.friends();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">Друзья</div>
+            <div class="top-sub">${friends.length} друзей</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          ${user ? `
+          <div class="form-section">
+            <h3>Мой код друга</h3>
+            <div class="friend-code" id="my-code">${user.friendCode}</div>
+            <button class="btn btn-blue btn-block" id="copy-code" style="margin-top:8px">📋 Копировать код</button>
+          </div>
+          <div class="form-section">
+            <h3>Добавить друга</h3>
+            <div class="row">
+              <input class="input" id="f-input" placeholder="Код друга (буквы/цифры)" style="flex:1;min-width:150px">
+              <button class="btn btn-primary" id="f-add">＋</button>
+            </div>
+            <div class="muted mt8">Код друга — из его аккаунта. Можно добавить и по имени.</div>
+          </div>` : `
+          <div class="form-section">
+            <h3>Нужен аккаунт</h3>
+            <div class="muted mb12">Друзья и дружеские бои привязаны к аккаунту.</div>
+            <button class="btn btn-primary btn-block" id="go-auth">Создать аккаунт / войти</button>
+          </div>`}
+          <div class="form-section">
+            <h3>Мои друзья</h3>
+            ${friends.length ? friends.map((f) => `
+              <div class="friend-row">
+                <div style="flex:1">
+                  <b>${escapeHtml(f.name)}</b>
+                  <div class="muted" style="font-size:11px">код: ${escapeHtml(f.code)}</div>
+                </div>
+                <button class="btn btn-chip" data-duel="${escapeHtml(f.name)}">⚔️</button>
+                <button class="btn btn-chip danger" data-del="${escapeHtml(f.name)}">✕</button>
+              </div>`).join('') : '<div class="muted">Пока никого нет</div>'}
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    const goAuth = this.root.querySelector('#go-auth');
+    if (goAuth) goAuth.onclick = () => this.showAuth();
+    const copyBtn = this.root.querySelector('#copy-code');
+    if (copyBtn) copyBtn.onclick = async () => {
+      const ok = await copyText(user.friendCode);
+      this.toast(ok ? 'Код друга скопирован' : 'Скопируйте код вручную');
+    };
+    const addBtn = this.root.querySelector('#f-add');
+    if (addBtn) addBtn.onclick = () => {
+      const r = accounts.addFriend(this.root.querySelector('#f-input').value);
+      this.toast(r.ok ? `Друг «${r.friend.name}» добавлен` : r.error);
+      if (r.ok) this.showFriends();
+    };
+    this.root.querySelectorAll('[data-del]').forEach((el) => {
+      el.onclick = () => {
+        accounts.removeFriend(el.dataset.del);
+        this.toast('Друг удалён');
+        this.showFriends();
+      };
+    });
+    this.root.querySelectorAll('[data-duel]').forEach((el) => {
+      el.onclick = () => {
+        const f = accounts.friends().find((x) => x.name === el.dataset.duel);
+        this.startBattle('friendly', f || null);
+      };
+    });
+  }
+
+  // ————— клан —————
+
+  showClan() {
+    const user = accounts.current();
+    const clan = accounts.myClan();
+    if (!user) {
+      this.setScreen(`
+        <div class="screen">
+          <div class="top-bar">
+            <button class="btn btn-ghost" id="back">←</button>
+            <div><div class="top-title">Клан</div><div class="top-sub">Нужен аккаунт</div></div>
+          </div>
+          <div class="screen-scroll">
+            <div class="form-section">
+              <h3>Кланы доступны с аккаунтом</h3>
+              <button class="btn btn-primary btn-block" id="go-auth">Создать аккаунт / войти</button>
+            </div>
+          </div>
+        </div>
+      `);
+      this.root.querySelector('#back').onclick = () => this.showMenu();
+      this.root.querySelector('#go-auth').onclick = () => this.showAuth();
+      return;
+    }
+
+    if (clan) {
+      const members = [...clan.members].sort((a, b) => (b.trophies || 0) - (a.trophies || 0));
+      this.setScreen(`
+        <div class="screen">
+          <div class="top-bar">
+            <button class="btn btn-ghost" id="back">←</button>
+            <div>
+              <div class="top-title">🛡 [${escapeHtml(clan.tag)}] ${escapeHtml(clan.name)}</div>
+              <div class="top-sub">${clan.members.length} участников</div>
+            </div>
+          </div>
+          <div class="screen-scroll">
+            <div class="form-section">
+              <h3>Участники</h3>
+              ${members.map((m) => `
+                <div class="friend-row">
+                  <div style="flex:1">
+                    <b>${m.role === 'leader' ? '👑 ' : ''}${escapeHtml(m.name)}</b>
+                    ${m.name === user.name ? '<span class="muted">(вы)</span>' : ''}
+                  </div>
+                  <span>🏆 ${m.trophies || 0}</span>
+                </div>`).join('')}
+            </div>
+            <div class="form-section">
+              <h3>События</h3>
+              ${(clan.log || []).slice(-8).reverse().map((l) => `
+                <div class="muted" style="font-size:11px">• ${escapeHtml(l.msg)}</div>`).join('')}
+            </div>
+            <button class="btn btn-ghost btn-block danger" id="leave" style="margin-bottom:30px">Выйти из клана</button>
+          </div>
+        </div>
+      `);
+      this.root.querySelector('#back').onclick = () => this.showMenu();
+      this.root.querySelector('#leave').onclick = async () => {
+        const ok = await this.confirmModal('Выйти из клана?', `Вы покинете [${clan.tag}] ${clan.name}.`, [
+          { label: 'Выйти', value: true, primary: true },
+          { label: 'Отмена', value: false }
+        ]);
+        if (!ok) return;
+        accounts.leaveClan();
+        this.toast('Вы покинули клан');
+        this.showClan();
+      };
+      return;
+    }
+
+    const all = accounts.allClans();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div><div class="top-title">Клан</div><div class="top-sub">Создайте свой или вступите</div></div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3>Создать клан</h3>
+            <div class="form-grid">
+              <div class="form-field"><label>Название</label><input class="input" id="c-name" maxlength="24" placeholder="Короли Арены"></div>
+              <div class="form-field"><label>Тег</label><input class="input" id="c-tag" maxlength="8" placeholder="KNG"></div>
+            </div>
+            <button class="btn btn-primary btn-block" id="c-create" style="margin-top:10px">Создать клан</button>
+          </div>
+          <div class="form-section">
+            <h3>Вступить по тегу</h3>
+            <div class="row">
+              <input class="input" id="c-join" maxlength="8" placeholder="Тег клана" style="flex:1">
+              <button class="btn btn-blue" id="c-join-btn">Вступить</button>
+            </div>
+          </div>
+          ${all.length ? `
+          <div class="form-section">
+            <h3>Кланы на устройстве</h3>
+            ${all.map((cl) => `
+              <div class="friend-row">
+                <div style="flex:1"><b>[${escapeHtml(cl.tag)}]</b> ${escapeHtml(cl.name)}
+                  <div class="muted" style="font-size:11px">${cl.members.length} участников</div>
+                </div>
+                <button class="btn btn-chip" data-join="${escapeHtml(cl.tag)}">Вступить</button>
+              </div>`).join('')}
+          </div>` : ''}
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#c-create').onclick = () => {
+      const r = accounts.createClan(
+        this.root.querySelector('#c-name').value,
+        this.root.querySelector('#c-tag').value
+      );
+      this.toast(r.ok ? `Клан [${r.clan.tag}] создан!` : r.error);
+      if (r.ok) this.showClan();
+    };
+    this.root.querySelector('#c-join-btn').onclick = () => {
+      const r = accounts.joinClan(this.root.querySelector('#c-join').value);
+      this.toast(r.ok ? `Вы вступили в [${r.clan.tag}]` : r.error);
+      if (r.ok) this.showClan();
+    };
+    this.root.querySelectorAll('[data-join]').forEach((el) => {
+      el.onclick = () => {
+        const r = accounts.joinClan(el.dataset.join);
+        this.toast(r.ok ? `Вы вступили в [${r.clan.tag}]` : r.error);
+        if (r.ok) this.showClan();
+      };
+    });
+  }
+
+  // ————— админ-панель —————
+
+  showAdmin() {
+    const u = accounts.current();
+    if (!u || !u.isAdmin) {
+      this.toast('Только для админа');
+      return;
+    }
+    const P = this.balanceParams;
+    const numRow = (key, label, obj, step = '1') => `
+      <div class="form-field"><label>${label}</label>
+        <input class="input" type="number" step="${step}" data-p="${obj ? obj + '.' + key : key}" value="${obj ? P[obj][key] : P[key]}">
+      </div>`;
+    const roster = this.cards().filter((c) => !c.hidden);
+    const badCount = roster.filter((c) => !this.balanceOf(c).ok).length;
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">⚙️ Админ-панель</div>
+            <div class="top-sub">Настройка баланса карт</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3>Бюджет</h3>
+            <div class="form-grid">
+              ${numRow('base', 'Базовый бюджет')}
+              ${numRow('perElixir', 'Бюджет за эликсир')}
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Цены характеристик</h3>
+            <div class="form-grid">
+              ${numRow('hp', 'Цена 1 HP', null, '0.01')}
+              ${numRow('dps', 'Цена 1 DPS', null, '0.1')}
+              ${numRow('range', 'Цена дальности', null, '1')}
+              ${numRow('speed', 'Цена скорости', null, '1')}
+              ${numRow('splash', 'Цена сплэша', null, '1')}
+              ${numRow('flying', 'Цена полёта')}
+              ${numRow('countExtra', 'Цена +юнит')}
+              ${numRow('targetsAir', 'Цена «бьёт по воздуху»')}
+              ${numRow('lifetime', 'Цена сек. жизни', null, '0.5')}
+              ${numRow('spellRadius', 'Цена радиуса закл.', null, '1')}
+              ${numRow('spellPower', 'Цена урона закл.', null, '0.05')}
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Цены эффектов заклинаний</h3>
+            <div class="form-grid">
+              ${Object.keys(P.spellEffect).map((k) => numRow(k, SPELL_EFFECTS[k] || k, 'spellEffect')).join('')}
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Цены механик (абилок)</h3>
+            <div class="form-grid">
+              ${Object.keys(P.ability).map((k) => numRow(k, (ABILITY_DEFS[k]?.label || k).slice(0, 28), 'ability')).join('')}
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Сводка</h3>
+            <div class="info-list">Дисбалансных карт в базе: <b style="color:${badCount ? '#ff9c9c' : '#7dff9e'}">${badCount} из ${roster.length}</b></div>
+            <button class="btn btn-ghost btn-block" id="p-reset" style="margin-top:10px">Вернуть значения по умолчанию</button>
+          </div>
+          <button class="btn btn-primary btn-block btn-big" id="p-save" style="margin:10px 0 30px">💾 Сохранить баланс</button>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#p-reset').onclick = async () => {
+      const ok = await this.confirmModal('Сбросить баланс?', 'Все цены вернутся к значениям по умолчанию.', [
+        { label: 'Сбросить', value: true, primary: true },
+        { label: 'Отмена', value: false }
+      ]);
+      if (!ok) return;
+      this.balanceParams = accounts.setBalance(DEFAULT_BALANCE);
+      this.toast('Баланс сброшен к дефолту');
+      this.showAdmin();
+    };
+    this.root.querySelector('#p-save').onclick = () => {
+      const next = JSON.parse(JSON.stringify(this.balanceParams));
+      this.root.querySelectorAll('[data-p]').forEach((inp) => {
+        const v = parseFloat(inp.value);
+        if (!Number.isFinite(v)) return;
+        const [a, b] = inp.dataset.p.split('.');
+        if (b) next[a][b] = v;
+        else next[a] = v;
+      });
+      this.balanceParams = accounts.setBalance(next);
+      this.toast('Баланс сохранён');
+      this.showAdmin();
+    };
   }
 
   // ————— 3D-редактор —————
@@ -760,18 +1443,32 @@ export class App {
 
   // ————— бой —————
 
-  startBattle() {
+  startBattle(mode = 'normal', friend = null) {
     if (this.deck.length < 4) {
       this.toast('В колоде должно быть минимум 4 карты');
       return;
     }
-    const all = this.cards().filter((c) => !c.hidden);
-    const enemyPool = all.map((c) => c.id).filter((id) => !this.deck.includes(id));
-    const enemyDeck = [];
-    while (enemyDeck.length < 8 && enemyPool.length) {
-      enemyDeck.push(enemyPool.splice(Math.floor(Math.random() * enemyPool.length), 1)[0]);
+    this.battleMode = mode;
+    if (mode === 'normal') {
+      const bad = this.deckIssues();
+      if (bad.length) {
+        this.toast('Дисбалансные карты — только в дружеском бою');
+        this.showBattleMenu();
+        return;
+      }
     }
-    while (enemyDeck.length < 8) enemyDeck.push(this.deck[enemyDeck.length % this.deck.length]);
+    const all = this.cards().filter((c) => !c.hidden);
+    let enemyDeck;
+    if (friend && Array.isArray(friend.deck) && friend.deck.length >= 4) {
+      enemyDeck = friend.deck.slice(0, 8);
+    } else {
+      const enemyPool = all.map((c) => c.id).filter((id) => !this.deck.includes(id));
+      enemyDeck = [];
+      while (enemyDeck.length < 8 && enemyPool.length) {
+        enemyDeck.push(enemyPool.splice(Math.floor(Math.random() * enemyPool.length), 1)[0]);
+      }
+      while (enemyDeck.length < 8) enemyDeck.push(this.deck[enemyDeck.length % this.deck.length]);
+    }
 
     const cardsById = new Map(this.cards().map((c) => [c.id, c]));
 
@@ -796,7 +1493,7 @@ export class App {
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
           </div>
           <div class="hand-row" id="b-hand"></div>
-          <div class="battle-hint">Перетащите карту на арену или тапните карту → тапните свою половину</div>
+          <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену или тапните карту → тапните свою половину</div>
         </div>
       </div>
     `);
@@ -1097,17 +1794,21 @@ export class App {
     const b = this.battle;
     const res = b.result || { winner: 'draw' };
     const stats = storage.addBattleResult(res.winner === 'player');
+    const u = accounts.addBattle(res.winner === 'player', this.battleMode !== 'friendly', res.winner === 'draw');
     this.sfx.play(res.winner === 'player' ? 'win' : res.winner === 'draw' ? 'ui' : 'lose');
 
     const title = res.winner === 'player' ? 'Победа!' : res.winner === 'draw' ? 'Ничья' : 'Поражение';
     const icon = res.winner === 'player' ? '🏆' : res.winner === 'draw' ? '🤝' : '💀';
+    const trophyLine = u && this.battleMode !== 'friendly' && res.winner !== 'draw'
+      ? `<br>Трофеи: <b>🏆 ${u.trophies}</b> (${res.winner === 'player' ? '+30' : '−15'})`
+      : (this.battleMode === 'friendly' ? '<br><span class="muted">Дружеский бой — трофеи не меняются</span>' : '');
     const ov = document.createElement('div');
     ov.className = 'overlay';
     ov.innerHTML = `
       <div class="modal">
         <div class="result-big">${icon}</div>
         <h2>${title}</h2>
-        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}</p>
+        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}${trophyLine}</p>
         <button class="btn btn-primary" data-a="menu">В меню</button>
         <button class="btn btn-blue" data-a="again">Ещё бой</button>
       </div>`;
@@ -1116,7 +1817,7 @@ export class App {
       if (!btn) return;
       ov.remove();
       this._resultShown = false;
-      if (btn.dataset.a === 'again') this.startBattle();
+      if (btn.dataset.a === 'again') this.startBattle(this.battleMode || 'normal');
       else this.showMenu();
     });
     document.body.appendChild(ov);

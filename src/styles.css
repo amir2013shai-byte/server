@@ -537,3 +537,80 @@ select.input { appearance: none; }
 .fa-enemy { background: rgba(224, 85, 85, 0.22); }
 .fa-own { background: rgba(74, 144, 255, 0.28); cursor: pointer; }
 .fa-own:active { background: rgba(74, 144, 255, 0.45); }
+
+/* ——— аккаунты, друзья, кланы, баланс ——— */
+.account-bar {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #e8ecf7;
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+}
+.account-bar:active { background: rgba(255, 255, 255, 0.14); }
+
+.bal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: #b8c0d8;
+  margin-bottom: 8px;
+}
+.bal-bar {
+  height: 10px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.bal-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #4a90ff, #7dff9e);
+  transition: width .15s ease;
+}
+.bal-fill.over { background: linear-gradient(90deg, #f0a13c, #ff5555); }
+.bal-parts { margin-top: 8px; font-size: 11px; color: #8e97b4; line-height: 1.6; }
+.bal-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 85, 85, 0.14);
+  border: 1px solid rgba(255, 85, 85, 0.35);
+  color: #ffb0b0;
+  font-size: 12px;
+}
+.bal-badge {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  z-index: 2;
+  font-size: 13px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.friend-code {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(74, 144, 255, 0.18);
+  border: 1px dashed rgba(125, 255, 158, 0.5);
+  letter-spacing: 3px;
+  font-size: 16px;
+  color: #7dff9e;
+}
