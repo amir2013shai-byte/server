@@ -796,7 +796,7 @@ export class App {
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
           </div>
           <div class="hand-row" id="b-hand"></div>
-          <div class="battle-hint">Выберите карту и перетащите на свою половину арены</div>
+          <div class="battle-hint">Все карты ставятся только на свою половину арены</div>
         </div>
       </div>
     `);
@@ -880,9 +880,9 @@ export class App {
     if (!b || b.finished) return;
     const c = this.cards().find((x2) => x2.id === cardId);
     if (!c) return;
-    const isSpell = c.type === 'spell';
-    if (!isSpell && !b.canPlaceAt(x, y, 'player')) {
-      this.toast('Размещайте войска на своей половине!');
+    // все карты (включая заклинания) ставятся только на свою половину
+    if (!b.canPlaceAt(x, y, 'player')) {
+      this.toast('Ставьте карты только на свою половину арены!');
       return;
     }
     if (!b.canDeploy('player', cardId)) {
@@ -890,7 +890,7 @@ export class App {
       return;
     }
     b.deploy(cardId, x, y, 'player');
-    this.sfx.play(isSpell ? 'spell' : 'deploy');
+    this.sfx.play(c.type === 'spell' ? 'spell' : 'deploy');
     this.selectedCard = null;
     if (this.battleView) {
       this.battleView.setPendingCard(null);

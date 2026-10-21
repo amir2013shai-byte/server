@@ -93,7 +93,7 @@ export class ModelEditor {
         case 'reset-cam': this.resetCamera(); break;
         case 'template': this._pickTemplate(); break;
         case 'clear':
-          if (confirm('Удалить все части модели?')) {
+          if ((window.confirm || confirm)('Удалить все части модели?')) {
             this.model.parts = [];
             this.refreshParts();
             this.propsEl.innerHTML = '<div class="me-empty">Добавьте части модели</div>';
@@ -110,7 +110,10 @@ export class ModelEditor {
   _pickTemplate() {
     const names = Object.keys(TEMPLATES);
     const list = names.map((k, i) => `${i + 1}. ${TEMPLATES[k].label}`).join('\n');
-    const ans = prompt(`Шаблон модели:\n${list}\n\nВведите номер:`, '1');
+    let ans = null;
+    try {
+      ans = (window.prompt || prompt)(`Шаблон модели:\n${list}\n\nВведите номер:`, '1');
+    } catch { return; }
     const idx = parseInt(ans, 10) - 1;
     if (idx >= 0 && idx < names.length) {
       this.model = TEMPLATES[names[idx]].make();
@@ -126,7 +129,14 @@ export class ModelEditor {
     const w = wrap.clientWidth || 360;
     const h = wrap.clientHeight || 300;
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    try {
+      this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch (e) {
+      console.error('3D-превью недоступно:', e);
+      wrap.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#8e97b4;padding:16px;text-align:center">3D-превью недоступно на этом устройстве.<br>Редактирование частей и параметров работает.</div>';
+      this.renderer = null;
+      return;
+    }
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h);
     this.renderer.setClearColor(0x22283c);
@@ -168,7 +178,7 @@ export class ModelEditor {
 
     this._animating = true;
     const loop = () => {
-      if (!this._animating) return;
+      if (!this._animating || !this.renderer) return;
       requestAnimationFrame(loop);
       this.controls.update();
       this.renderer.render(this.scene, this.camera);
@@ -177,12 +187,14 @@ export class ModelEditor {
   }
 
   resetCamera() {
+    if (!this.camera) return;
     this.camera.position.set(3.2, 2.6, 4.2);
     this.controls.target.set(0, 1, 0);
     this.controls.update();
   }
 
   _rebuildModel() {
+    if (!this.modelGroup) return;
     this.modelGroup.clear();
     this.modelGroup.add(buildModel(this.model));
 
@@ -268,7 +280,7 @@ export class ModelEditor {
         const val = parseFloat(inp.value);
         if (f === 'rot') p.rot[axis] = rad(val);
         else p[f][axis] = val;
-        const num = this.propsEl.querySelector(`input[data-num="${f}${axis}"]`);
+        const num = this.propsEl.querySelector(`input[data-num="${f}"][data-axis="${axis}"]`);
         if (num) num.value = val;
         commit();
       });

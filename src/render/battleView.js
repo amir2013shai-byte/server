@@ -34,7 +34,7 @@ export class BattleView {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0x1a2238, 42, 85);
 
-    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.1, 200);
+    this.camera = new THREE.PerspectiveCamera(42.5, w / h, 0.1, 200);
     this._layoutCamera();
 
     // свет
@@ -64,9 +64,9 @@ export class BattleView {
   }
 
   _layoutCamera() {
-    // камера за спиной игрока, арена вытянута по вертикали экрана
-    this.camera.position.set(0, -26.5, 27.5);
-    this.camera.lookAt(0, 2.5, 3.5);
+    // камера над своей половиной: низ экрана — своя зона, верх — вражеская
+    this.camera.position.set(0, 36, -16);
+    this.camera.lookAt(0, 0, -2);
   }
 
   _buildArena() {
