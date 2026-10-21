@@ -191,7 +191,8 @@ class AxmlBuilder:
         for e in encoded:
             offsets.append(len(blob))
             blob += e
-        strings_start = 8 + 4 + 4 + 4 + 4 + 4 * len(self.strings)  # hdr+5*u32+offs
+        # заголовок пула 28 байт + таблица оффсетов 4*count
+        strings_start = 28 + 4 * len(self.strings)
         size = strings_start + len(blob)
         # header: type, headerSize, size | body: stringCount, styleCount, flags, stringsStart, stylesStart
         out = struct.pack(

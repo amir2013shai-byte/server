@@ -155,6 +155,7 @@ export class App {
             <button class="btn btn-ghost" id="m-cards">📚 Коллекция карт</button>
             <button class="btn btn-ghost" id="m-editor">🛠 Редактор карт</button>
             <button class="btn btn-ghost" id="m-settings">⚙️ Настройки</button>
+            ${/^https?:$/.test(location.protocol) ? '<button class="btn btn-primary" id="m-apk">📥 Скачать APK на телефон</button>' : ''}
           </div>
           <div class="menu-stats">
             Побед: <b style="color:#7dff9e">${stats.wins}</b> из <b>${stats.battles}</b> боёв
@@ -168,6 +169,8 @@ export class App {
     this.root.querySelector('#m-cards').onclick = () => { this.sfx.play('ui'); this.showCollection(); };
     this.root.querySelector('#m-editor').onclick = () => { this.sfx.play('ui'); this.showCardList(); };
     this.root.querySelector('#m-settings').onclick = () => { this.sfx.play('ui'); this.showSettings(); };
+    const apkBtn = this.root.querySelector('#m-apk');
+    if (apkBtn) apkBtn.onclick = () => { this.sfx.play('ui'); location.href = './battle-cards-royale-1.0.apk'; };
   }
 
   // ————— коллекция —————
