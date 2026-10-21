@@ -1,0 +1,13 @@
+# зависимости и сборка
+node_modules/
+dist/
+.vite/
+
+# android-проект Capacitor (генерируется командой npx cap add android)
+android/
+ios/
+
+# системное
+.DS_Store
+*.log
+.cache/

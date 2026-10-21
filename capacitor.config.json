@@ -1,0 +1,12 @@
+{
+  "appId": "com.battlecards.royale",
+  "appName": "Королевские Схватки",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
