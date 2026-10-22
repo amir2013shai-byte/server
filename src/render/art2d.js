@@ -295,6 +295,8 @@ export function drawCardSprite(ctx, card, x, y, size, t, opts = {}) {
   if (art && art.frames && art.frames.length) {
     const idx = type === 'walk' ? artFrameIndex(art, t) : 0;
     const strokes = art.frames[idx] || art.frames[0];
+    // рисунок хранится в квадрате [0..size]² — центрируем его на (x,y)
+    ctx.translate(-size / 2, -size / 2);
     if (art.frames.length > 1 && type !== 'walk') {
       // даже без режима walk показываем смену кадров — это анимация рисунка
       const idx2 = artFrameIndex(art, t);

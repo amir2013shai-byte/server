@@ -53,17 +53,30 @@ export class ArtEditor {
     const fr = this.art.frames[frame] || (this.art.frames[frame] = []);
     fr.push(stroke);
     this._paint();
+    this._updateFrameCounts();
   }
 
   undo() {
     const fr = this.art.frames[this.frame];
     if (fr && fr.length) fr.pop();
     this._paint();
+    this._updateFrameCounts();
   }
 
   clearFrame() {
     this.art.frames[this.frame] = [];
     this._paint();
+    this._updateFrameCounts();
+  }
+
+  // живой счётчик штрихов в кнопках кадров (без пересборки DOM)
+  _updateFrameCounts() {
+    const framesEl = this.container && this.container.querySelector ? this.container.querySelector('#art-frames') : null;
+    if (!framesEl) return;
+    this.art.frames.forEach((f, i) => {
+      const btn = framesEl.querySelector(`[data-frame="${i}"] .muted`);
+      if (btn) btn.textContent = `(${f.length})`;
+    });
   }
 
   addFrame(copy = true) {

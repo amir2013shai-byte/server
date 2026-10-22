@@ -51,6 +51,23 @@ step('штампы добавляются', () => {
   if (s.x !== 64 || s.s !== 30) throw new Error('параметры штампа потерялись');
 });
 
+step('счётчик кадра обновляется вживую', () => {
+  const label = () => {
+    const el = window.document.querySelector(`[data-frame="${editor.frame}"] .muted`);
+    return el ? el.textContent : null;
+  };
+  const n = editor.getArt().frames[editor.frame].length;
+  if (label() !== `(${n})`) throw new Error(`счётчик ${label()} вместо (${n})`);
+  editor.addStamp('circle', 32, 32, 24, '#ffffff');
+  if (label() !== `(${n + 1})`) throw new Error('счётчик не вырос после штампа');
+  editor.undo();
+  if (label() !== `(${n})`) throw new Error('счётчик не уменьшился после undo');
+  editor.clearFrame();
+  if (label() !== '(0)') throw new Error('счётчик не обнулился после очистки');
+  // вернуть содержимое для следующих шагов
+  editor.addStamp('star', 64, 64, 30, '#ffe066');
+});
+
 step('кадры: добавление копирует рисунок', () => {
   const n0 = editor.getArt().frames.length;
   if (!editor.addFrame(true)) throw new Error('кадр не добавился');
