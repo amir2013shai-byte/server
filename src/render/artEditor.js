@@ -1,7 +1,7 @@
 // Редактор рисунка карты: пользователь рисует карту сам и анимирует её.
 // Инструменты: кисть, ластик, штампы, цвета, толщина; кадры (до 4) и анимация.
 // Рисунок хранится как векторные штрихи — компактно для кодов обмена BA1.
-import { ART_SIZE, ART_ANIMS, emptyArt, normalizeArt, drawStrokes, renderArtFrame, drawCardSprite } from './art2d.js';
+import { ART_SIZE, ART_ANIMS, emptyArt, normalizeArt, drawStrokes, renderArtFrame, drawCardSprite, clearSpriteCache } from './art2d.js';
 import { encodeArt, decodeArt, copyText } from '../share.js';
 
 const PALETTE = ['#ffffff', '#1a1a22', '#e05555', '#ff8b3c', '#f0d040', '#35d05a', '#49d9ff', '#4d8df0', '#c26bf2', '#8a5a2c'];
@@ -36,6 +36,7 @@ export class ArtEditor {
   setArt(a) {
     this.art = normalizeArt(a);
     this.frame = 0;
+    this._bump();
     this._refresh();
   }
 
@@ -49,9 +50,16 @@ export class ArtEditor {
 
   // ——— операции над рисунком (используются и тестами) ———
 
+  // пометить рисунок изменённым (для сброса кэша спрайтов/превью)
+  _bump() {
+    this.art._v = (this.art._v || 0) + 1;
+    clearSpriteCache();
+  }
+
   addStroke(stroke, frame = this.frame) {
     const fr = this.art.frames[frame] || (this.art.frames[frame] = []);
     fr.push(stroke);
+    this._bump();
     this._paint();
     this._updateFrameCounts();
   }
@@ -59,12 +67,14 @@ export class ArtEditor {
   undo() {
     const fr = this.art.frames[this.frame];
     if (fr && fr.length) fr.pop();
+    this._bump();
     this._paint();
     this._updateFrameCounts();
   }
 
   clearFrame() {
     this.art.frames[this.frame] = [];
+    this._bump();
     this._paint();
     this._updateFrameCounts();
   }
@@ -84,6 +94,7 @@ export class ArtEditor {
     const src = this.art.frames[this.frame] || [];
     this.art.frames.push(copy ? JSON.parse(JSON.stringify(src)) : []);
     this.frame = this.art.frames.length - 1;
+    this._bump();
     this._refresh();
     return true;
   }
@@ -98,6 +109,7 @@ export class ArtEditor {
     if (this.art.frames.length <= 1) return false;
     this.art.frames.splice(i, 1);
     this.frame = Math.max(0, Math.min(this.frame, this.art.frames.length - 1));
+    this._bump();
     this._refresh();
     return true;
   }
@@ -280,8 +292,20 @@ export class ArtEditor {
       ctx.moveTo(0, (i / 8) * s); ctx.lineTo(s, (i / 8) * s);
       ctx.stroke();
     }
-    renderArtFrame(ctx, this.art.frames[this.frame] || [], s);
-    if (this.liveStroke) drawStrokes(ctx, [this.liveStroke], s);
+    // рисунок — в offscreen-буфер: ластик стирает рисунок до прозрачного,
+    // и сквозь дырки видна сетка фона (а не «темно-синее пятно»)
+    const buf = this._buf || (this._buf = document.createElement('canvas'));
+    if (buf.width !== s || buf.height !== s) { buf.width = s; buf.height = s; }
+    const bctx = buf.getContext ? (() => { try { return buf.getContext('2d'); } catch { return null; } })() : null;
+    if (bctx) {
+      bctx.clearRect(0, 0, s, s);
+      renderArtFrame(bctx, this.art.frames[this.frame] || [], s);
+      if (this.liveStroke) drawStrokes(bctx, [this.liveStroke], s);
+      ctx.drawImage(buf, 0, 0);
+    } else {
+      renderArtFrame(ctx, this.art.frames[this.frame] || [], s);
+      if (this.liveStroke) drawStrokes(ctx, [this.liveStroke], s);
+    }
     // рамка кадра
     ctx.strokeStyle = 'rgba(77,141,240,0.5)';
     ctx.lineWidth = 2;
@@ -378,7 +402,7 @@ export class ArtEditor {
         ctx.clearRect(0, 0, pc.width, pc.height);
         ctx.fillStyle = '#1a2030';
         ctx.fillRect(0, 0, pc.width, pc.height);
-        drawCardSprite(ctx, { art: this.getArt(), id: 'preview' }, pc.width / 2, pc.height / 2, pc.width * 0.82, t);
+        drawCardSprite(ctx, { art: this.art, id: 'preview' }, pc.width / 2, pc.height / 2, pc.width * 0.82, t);
       }
       this._raf = requestAnimationFrame(loop);
     };

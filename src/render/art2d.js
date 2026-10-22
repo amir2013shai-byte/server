@@ -222,17 +222,18 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// базовый спрайт карты (без анимации-трансформа): art → нарисованный кадр; иначе модель; иначе буква
-export function baseSprite(card, size = 96) {
-  const key = `${card && card.id}|${size}|${artVersion(card)}`;
+// базовый спрайт карты (без анимации-трансформа): art → нарисованный кадр; иначе модель; иначе буква.
+// Рисунок рисуется в offscreen-канвас: ластик (destination-out) стирает РИСУНОК, а не фон под ним.
+export function baseSprite(card, size = 96, frameIdx = 0) {
+  const key = `${card && card.id}|${size}|${artVersion(card)}|${frameIdx}`;
   if (spriteCache.has(key)) return spriteCache.get(key);
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
   if (ctx) {
     const art = card && card.art;
-    if (art && art.frames && art.frames[0] && art.frames[0].length) {
-      drawStrokes(ctx, art.frames[0], size);
+    if (art && art.frames && art.frames.length) {
+      drawStrokes(ctx, art.frames[frameIdx] || art.frames[0] || [], size);
     } else if (card && card.model && Array.isArray(card.model.parts) && card.model.parts.length) {
       const m = spriteFromModel(card.model, size);
       ctx.drawImage(m, 0, 0);
@@ -293,17 +294,10 @@ export function drawCardSprite(ctx, card, x, y, size, t, opts = {}) {
   if (scale !== 1) ctx.scale(scale, scale);
 
   if (art && art.frames && art.frames.length) {
-    const idx = type === 'walk' ? artFrameIndex(art, t) : 0;
-    const strokes = art.frames[idx] || art.frames[0];
-    // рисунок хранится в квадрате [0..size]² — центрируем его на (x,y)
-    ctx.translate(-size / 2, -size / 2);
-    if (art.frames.length > 1 && type !== 'walk') {
-      // даже без режима walk показываем смену кадров — это анимация рисунка
-      const idx2 = artFrameIndex(art, t);
-      drawStrokes(ctx, art.frames[idx2] || strokes, size);
-    } else {
-      drawStrokes(ctx, strokes, size);
-    }
+    // кадр анимации рисунка (walk — смена кадров; при нескольких кадрах тоже)
+    const idx = artFrameIndex(art, t);
+    const spr = baseSprite(card, 96, idx);
+    ctx.drawImage(spr, -size / 2, -size / 2, size, size);
   } else {
     const spr = baseSprite(card, 96);
     ctx.drawImage(spr, -size / 2, -size / 2, size, size);

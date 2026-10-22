@@ -261,11 +261,17 @@ export class Battle {
       return null;
     }
 
+    // войска/здания — строго на своей половине: даже разброс отряда
+    // не должен выталкивать бойцов за линию реки («захват» чужой территории)
+    const ownSide = team === 'player' ? -1 : 1;
+    y = ownSide < 0 ? Math.min(y, -ARENA.riverY) : Math.max(y, ARENA.riverY);
+
     const count = c.type === 'troop' ? Math.max(1, c.count || 1) : 1;
     const spawned = [];
     const offsets = this._spreadOffsets(count);
     for (let i = 0; i < count; i++) {
-      const u = this._makeUnit(c, team, x + offsets[i].x, y + offsets[i].y, opts);
+      const oy = clamp(y + offsets[i].y, ownSide * ARENA.halfH + 0.4, ownSide * ARENA.riverY);
+      const u = this._makeUnit(c, team, x + offsets[i].x, oy, opts);
       spawned.push(u);
     }
 
@@ -678,8 +684,9 @@ export class Battle {
       const inRiver = Math.abs(u.y) <= ARENA.riverY;
       const wrongWay = unitSide !== goalSide;
       if (inRiver || wrongWay) {
-        // мост, через который короче всего путь к цели
-        const score = (b) => Math.abs(u.x - b) + Math.abs(gx - b);
+        // мост через путь к ЦЕЛИ (вес цели ×2): если своя ближайшая вышка снесена,
+        // юнит идёт к мосту у ОСТАВШЕЙСЯ цели, а не к ближайшему мосту «по инерции»
+        const score = (b) => Math.abs(u.x - b) + 2 * Math.abs(gx - b);
         const bx = score(-ARENA.bridgeX) <= score(ARENA.bridgeX) ? -ARENA.bridgeX : ARENA.bridgeX;
         // лёгкая «полоса» на мосту, чтобы колонна не сбивалась в одну точку
         const n = parseInt(String(u.id).replace(/\D/g, ''), 10) || 0;
@@ -716,13 +723,14 @@ export class Battle {
     const inL = Math.abs(u.x + ARENA.bridgeX) <= half;
     const inR = Math.abs(u.x - ARENA.bridgeX) <= half;
     if (inL || inR) return; // на мосту — можно
-    // рядом с мостом — вернуться на мост; далеко — вытолкнуть на ближайший берег
+    // рядом с мостом — вернуться на мост; далеко — вытолкнуть на СВОЙ берег
+    // (выброс на чужой берег давал бесплатный переход через реку — «захват» куска территории)
     const near = Math.abs(u.x + ARENA.bridgeX) < Math.abs(u.x - ARENA.bridgeX) ? -ARENA.bridgeX : ARENA.bridgeX;
     const off = u.x - near;
     if (Math.abs(off) <= half + 1.1) {
       u.x = near + Math.sign(off || 1) * (half - 0.02);
     } else {
-      u.y = (u.y > 0 ? 1 : u.y < 0 ? -1 : (u.team === 'player' ? -1 : 1)) * ARENA.riverY;
+      u.y = (u.team === 'player' ? -1 : 1) * ARENA.riverY;
     }
   }
 

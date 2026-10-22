@@ -176,6 +176,49 @@ for (let t = 0; t < 20; t += 0.05) {
 }
 check('юниты с обеих сторон заходят на мост', sOn && nOn);
 
+// ——— высадка не «захватывает» чужую территорию ———
+const b9 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+b9.deploy('goblins', 0, -ARENA.riverY, 'player', { free: true });
+b9.deploy('recruits', 2, -ARENA.riverY, 'player', { free: true });
+const placed = b9.units.filter((u) => u.team === 'player');
+check('отряды у самой линии не вылезают за свою половину',
+  placed.length >= 4 && placed.every((u) => u.y <= -ARENA.riverY + 0.01));
+
+// выталкивание из воды — всегда на СВОЙ берег
+const b10 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const wet = b10._makeUnit(getCard('knight'), 'player', 0, 0.3, {});
+b10._constrainToLand(wet);
+check('юнит в воде выносится на свой берег, а не на чужой', wet.y === -ARENA.riverY);
+const wetAi = b10._makeUnit(getCard('knight'), 'ai', 0, -0.3, {});
+b10._constrainToLand(wetAi);
+check('вражеский юнит в воде — на своём берегу', wetAi.y === ARENA.riverY);
+
+// ——— после сноса боковой вышки юнит идёт к мосту у ОСТАВШЕЙСЯ цели ———
+const b11 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+const leftT = b11.towers.find((t) => t.team === 'ai' && t.kind !== 'king' && t.x < 0);
+b11._damage(leftT, 99999, {});
+const walker2 = b11.deploy('knight', -6, -6, 'player', { free: true });
+let crossX = null;
+for (let t = 0; t < 60 && crossX === null && walker2 && walker2.alive; t += 0.05) {
+  b11.update(0.05);
+  if (walker2.y > ARENA.riverY + 0.2) crossX = walker2.x;
+}
+check('нет левой вышки — юнит переправляется у правого моста', crossX !== null && crossX > 2);
+
+// ——— баланс: одиночный юнит не сносит ГЛАВНУЮ вышку ———
+const b12 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+for (const t of b12.towers.filter((t) => t.team === 'ai' && t.kind !== 'king')) b12._damage(t, 99999, {});
+b12.deploy('magma_beast', 0, -2, 'player', { free: true });
+for (let t = 0; t < 150; t += 0.05) b12.update(0.05);
+const kingSolo1 = b12.towers.find((t) => t.team === 'ai' && t.kind === 'king');
+check('магмовый зверь в одиночку не сносит главную вышку', kingSolo1.alive);
+const b13 = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+for (const t of b13.towers.filter((t) => t.team === 'ai' && t.kind !== 'king')) b13._damage(t, 99999, {});
+b13.deploy('steel_golem', 0, -2, 'player', { free: true });
+for (let t = 0; t < 150; t += 0.05) b13.update(0.05);
+const kingSolo2 = b13.towers.find((t) => t.team === 'ai' && t.kind === 'king');
+check('стальной голем в одиночку не сносит главную вышку', kingSolo2.alive);
+
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);
   process.exit(1);

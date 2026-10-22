@@ -111,8 +111,8 @@ const TROOPS = [
   card({
     id: 'demolishers', name: 'Подрывники', rarity: 'common', type: 'troop', cost: 2, count: 2,
     desc: 'Бегут к зданиям и взрываются вместе с бочками пороха.',
-    hp: 260, damage: 320, hitSpeed: 1.0, range: 0.9, speed: 1.8, targets: 'ground', buildingOnly: true,
-    abilities: [{ type: 'deathDamage', damage: 420, radius: 1.8 }],
+    hp: 260, damage: 230, hitSpeed: 1.0, range: 0.9, speed: 1.8, targets: 'ground', buildingOnly: true,
+    abilities: [{ type: 'deathDamage', damage: 320, radius: 1.8 }],
     model: (() => {
       const m = smallHumanoid('#6b3a2b', '#e8b88a', {});
       m.parts.push(P('cylinder', [-0.3, 0.55, -0.15], [0.16, 0.3, 0.16], '#8a3b2b', { rot: [0.2, 0, 0.2] }));
@@ -177,7 +177,7 @@ const TROOPS = [
   card({
     id: 'giant', name: 'Гигант', rarity: 'rare', type: 'troop', cost: 5,
     desc: 'Огромный великан, который идёт только к зданиям.',
-    hp: 3600, damage: 230, hitSpeed: 1.5, range: 1.2, speed: 0.75, targets: 'ground', buildingOnly: true,
+    hp: 3600, damage: 190, hitSpeed: 1.5, range: 1.2, speed: 0.75, targets: 'ground', buildingOnly: true,
     model: (() => {
       const m = humanoid('#8a5a3b', '#e8b88a', { helmet: false, legs: '#5b3a2b' });
       // массивное тело
@@ -202,7 +202,7 @@ const TROOPS = [
   card({
     id: 'titan', name: 'Титан', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Медленный, но чудовищно сильный воин в тяжёлой броне.',
-    hp: 1900, damage: 380, hitSpeed: 1.6, range: 1.0, speed: 0.85, targets: 'ground',
+    hp: 1900, damage: 320, hitSpeed: 1.6, range: 1.0, speed: 0.85, targets: 'ground',
     model: humanoid('#5b5b66', '#b89a8a', { helmet: '#3b3b44', weapon: '#e0e4ec', legs: '#3b3b44' })
   }),
   card({
@@ -370,20 +370,20 @@ const TROOPS = [
   card({
     id: 'golem', name: 'Голем', rarity: 'epic', type: 'troop', cost: 8,
     desc: 'Каменный исполин, идущий к зданиям. После гибели распадается на големышей.',
-    hp: 6200, damage: 320, hitSpeed: 1.8, range: 1.3, speed: 0.65, targets: 'ground', buildingOnly: true,
+    hp: 5200, damage: 155, hitSpeed: 1.8, range: 1.3, speed: 0.65, targets: 'ground', buildingOnly: true,
     abilities: [{ type: 'spawnOnDeath', cardId: 'golemites', count: 2 }, { type: 'deathDamage', damage: 320, radius: 2.2 }],
     model: golem('#8b8fa3', '#5b5f73', '#66e0ff')
   }),
   card({
     id: 'steel_golem', name: 'Стальной голем', rarity: 'epic', type: 'troop', cost: 7,
     desc: 'Железная машина смерти. Один удар — целая толпа.',
-    hp: 3600, damage: 620, hitSpeed: 1.8, range: 1.1, speed: 0.75, targets: 'ground',
+    hp: 3600, damage: 215, hitSpeed: 1.8, range: 1.1, speed: 0.75, targets: 'ground',
     model: golem('#5b6d8a', '#3b4a5c', '#ff7a3c')
   }),
   card({
     id: 'bruiser', name: 'Громила', rarity: 'epic', type: 'troop', cost: 7,
     desc: 'Прыгает на врагов и оглушает их ударом с размаху.',
-    hp: 3300, damage: 320, hitSpeed: 1.7, range: 1.4, speed: 0.95, targets: 'ground', splash: 1.9,
+    hp: 3300, damage: 230, hitSpeed: 1.7, range: 1.4, speed: 0.95, targets: 'ground', splash: 1.9,
     abilities: [{ type: 'knockback', force: 2.2 }],
     model: (() => {
       const m = humanoid('#6b3a6b', '#b87ab8', { helmet: '#4a2b4a', plume: '#e85d5d', legs: '#3b2b3b' });
@@ -424,7 +424,7 @@ const TROOPS = [
   card({
     id: 'shadow_assassin', name: 'Теневой убийца', rarity: 'epic', type: 'troop', cost: 3,
     desc: 'Невидимый в тени, очень быстрый, бьёт в спину.',
-    hp: 720, damage: 260, hitSpeed: 0.9, range: 0.8, speed: 1.9, targets: 'ground',
+    hp: 720, damage: 215, hitSpeed: 0.9, range: 0.8, speed: 1.9, targets: 'ground',
     model: humanoid('#2c2c38', '#5b5b6b', { helmet: '#14141c', weapon: '#8a5aff', legs: '#1c1c28' })
   }),
   card({
@@ -438,9 +438,9 @@ const TROOPS = [
     })()
   }),
   card({
-    id: 'magma_beast', name: 'Магмовый зверь', rarity: 'epic', type: 'troop', cost: 7,
+    id: 'magma_beast', name: 'Магмовый зверь', rarity: 'epic', type: 'troop', cost: 6,
     desc: 'Летающий лавовый монстр. Идёт к зданиям и распадается на искры.',
-    hp: 4200, damage: 260, hitSpeed: 1.6, range: 2.2, speed: 0.85, targets: 'both', flying: true, buildingOnly: true,
+    hp: 2800, damage: 170, hitSpeed: 1.6, range: 2.2, speed: 0.85, targets: 'both', flying: true, buildingOnly: true,
     abilities: [{ type: 'spawnOnDeath', cardId: 'magmalings', count: 3 }],
     model: dragon('#c2532b', '#ffb03c', '#8a3b2b')
   }),
@@ -751,7 +751,7 @@ const HIDDEN = [
   }),
   card({
     id: 'magmalings', name: 'Магмовые искры', rarity: 'epic', type: 'troop', cost: 1, hidden: true, count: 1,
-    hp: 320, damage: 120, hitSpeed: 1.1, range: 1.0, speed: 1.35, targets: 'both', flying: true,
+    hp: 240, damage: 85, hitSpeed: 1.1, range: 1.0, speed: 1.35, targets: 'both', flying: true,
     model: spirit('#ff8b3c', '#ffd08a')
   }),
   card({
