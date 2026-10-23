@@ -186,6 +186,21 @@ select.input { appearance: none; }
   min-height: 28px;
   display: flex; align-items: center; justify-content: center;
 }
+/* бейдж уровня — на каждой карте (рука, коллекция, колода, лут) */
+.card-level {
+  position: absolute; right: -5px; bottom: -5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2f9e5f, #1d7a44);
+  border: 1.5px solid #b9f0cf;
+  color: #fff; font-size: 9.5px; font-weight: 900;
+  line-height: 1.35;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.hand-card .card-level { font-size: 10px; right: -4px; bottom: -4px; }
+.deck-slot .card-level { font-size: 8.5px; right: -3px; bottom: -3px; padding: 0 4px; }
 .rarity-common .card-icon { background: linear-gradient(160deg, #8e97ad, #5d6678); }
 .rarity-rare .card-icon { background: linear-gradient(160deg, #f0a13c, #b56a1c); }
 .rarity-epic .card-icon { background: linear-gradient(160deg, #c26bf2, #7a2bc2); }
@@ -296,6 +311,19 @@ select.input { appearance: none; }
   font-variant-numeric: tabular-nums;
 }
 .battle-timer.overtime { color: #ffb03c; animation: timerPulse 1s infinite; }
+/* надпись арены над картой боя */
+.battle-arena {
+  font-size: 11px; font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(20, 30, 56, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #cfe0ff;
+  white-space: nowrap;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 @keyframes timerPulse { 50% { opacity: 0.55; } }
 .crowns { display: flex; gap: 8px; align-items: center; font-size: 15px; font-weight: 800; }
 .crown-p { color: #8ab8ff; }

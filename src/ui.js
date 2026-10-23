@@ -11,6 +11,7 @@ import {
   copiesNeeded, cardCopiesOf, addCardCopies, canUpgrade, applyUpgrade
 } from './progress.js';
 import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
+import { ARENAS, arenaFor, nextArena } from './data/arenas.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -218,6 +219,8 @@ export class App {
   }
 
   cardIconHtml(card) {
+    // уровень карты — бейдж на каждой карте (рука, коллекция, колода, лут)
+    const lvl = `<div class="card-level">ур.${cardLevel(this.progress, card.id) || 1}</div>`;
     // рисунок карты (или спрайт из модели) → превью; иначе буква
     try {
       const c = document.createElement('canvas');
@@ -227,11 +230,11 @@ export class App {
         const spr = baseSprite(card, 72);
         ctx.drawImage(spr, 0, 0);
         const url = c.toDataURL('image/png');
-        return `<div class="card-icon card-icon-art"><img src="${url}" alt="${escapeHtml(card.name || '')}"></div>`;
+        return `<div class="card-icon card-icon-art"><img src="${url}" alt="${escapeHtml(card.name || '')}">${lvl}</div>`;
       }
     } catch { /* без canvas — буква */ }
     const letter = (card.name || '?').trim().charAt(0).toUpperCase();
-    return `<div class="card-icon">${letter}<span style="position:absolute;margin:26px 0 0 26px;font-size:12px">${TYPE_ICONS[card.type] || ''}</span></div>`;
+    return `<div class="card-icon">${letter}<span style="position:absolute;margin:26px 0 0 26px;font-size:12px">${TYPE_ICONS[card.type] || ''}</span>${lvl}</div>`;
   }
 
   // ————— главное меню —————
@@ -583,6 +586,9 @@ export class App {
     const trophies = (user && user.trophies) || 0;
     const league = leagueFor(trophies);
     const next = nextLeague(trophies);
+    const arena = arenaFor(trophies);
+    const nArena = nextArena(trophies);
+    const stars = (d) => '★'.repeat(d + 1) + '☆'.repeat(5 - d);
     const users = accounts.users()
       .filter((u) => u.name !== 'admin')
       .sort((a, b) => (b.trophies || 0) - (a.trophies || 0))
@@ -602,6 +608,19 @@ export class App {
             <div style="font-size:52px">${league.icon}</div>
             <h3 style="margin:6px 0;color:${league.color}">Лига «${league.name}»</h3>
             <div class="muted">🏆 ${trophies} трофеев${next ? ` • до лиги «${next.name}» ещё ${next.min - trophies}` : ' • максимальная лига!'}</div>
+            <div class="muted" style="margin-top:8px">${arena.icon} Арена «${arena.name}» • сложность ИИ ${stars(arena.difficulty)}${nArena ? ` • до «${nArena.name}» ещё ${nArena.min - trophies} 🏆` : ''}</div>
+          </div>
+          <div class="form-section">
+            <h3>Арены</h3>
+            <div class="muted" style="font-size:11px;margin-bottom:8px">Арена растёт с кубками: своя тема поля и всё более умный бот.</div>
+            ${ARENAS.map((A, i) => `
+              <div class="friend-row" style="${A.id === arena.id ? 'border-color:#4d8df0' : ''}">
+                <span style="font-size:20px">${A.icon}</span>
+                <div style="flex:1"><b>${A.name}</b>
+                  <div class="muted" style="font-size:11px">арена ${i + 1}/${ARENAS.length} • от ${A.min} 🏆 • ИИ ${stars(A.difficulty)}</div>
+                </div>
+                ${A.id === arena.id ? '<span>вы здесь</span>' : ''}
+              </div>`).join('')}
           </div>
           <div class="form-section">
             <h3>Лиги</h3>
@@ -2310,11 +2329,17 @@ export class App {
     // колоды в бой — с учётом уровней прокачки
     const cardsById = new Map(this.cards().map((c) => [c.id, scaleCard(c, cardLevel(this.progress, c.id))]));
 
+    // арена по кубкам: своя тема поля и своя сложность ИИ
+    const _cu = accounts.current();
+    const arena = arenaFor((_cu && _cu.trophies) || 0);
+    this.currentArena = arena;
+
     this.setScreen(`
       <div class="battle-screen">
         <div class="battle-top">
           <button class="btn btn-ghost" id="b-pause" style="padding:8px 12px">☰</button>
           <div class="battle-timer" id="b-timer">3:00</div>
+          <div class="battle-arena" title="Арена — тема поля и сила ИИ">${arena.icon} ${arena.name} • арена ${ARENAS.indexOf(arena) + 1}/${ARENAS.length}</div>
           <div class="crowns">
             <span class="crown-p">👑<span id="b-cp">0</span></span>
             <span class="muted">:</span>
@@ -2350,8 +2375,9 @@ export class App {
         doubleElixirAt: rules.doubleElixirAt,
         suddenDeath: rules.suddenDeath
       });
-      // онлайн: командой соперника управляет живой игрок, а не ИИ
-      this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai');
+      // онлайн: командой соперника управляет живой игрок, а не ИИ;
+      // сложность ИИ растёт с ареной (кубками)
+      this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai', arena.difficulty);
       if (mode === 'online-host') {
         this._remoteIntents = [];
         this._lastSnapAt = 0;
@@ -2371,6 +2397,7 @@ export class App {
       try {
         this.battleView = new BattleView(canvasHost, this.battle, {
           team: 'player',
+          theme: arena.colors,
           onDeployRequest: (cardId, x, y) => this._tryDeploy(cardId, x, y)
         });
         this.battleView.resize();

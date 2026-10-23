@@ -1,7 +1,9 @@
 // Смоук-тест боевого движка без рендера (node).
+import { readFileSync } from 'node:fs';
 import { ALL_CARDS, withCustom, getCard } from '../src/data/cards.js';
 import { Battle, MATCH_TIME, ARENA } from '../src/game/engine.js';
 import { BattleAI } from '../src/game/ai.js';
+import { ARENAS, arenaFor, nextArena } from '../src/data/arenas.js';
 
 let failed = 0;
 function check(name, cond) {
@@ -218,6 +220,37 @@ b13.deploy('steel_golem', 0, -2, 'player', { free: true });
 for (let t = 0; t < 150; t += 0.05) b13.update(0.05);
 const kingSolo2 = b13.towers.find((t) => t.team === 'ai' && t.kind === 'king');
 check('стальной голем в одиночку не сносит главную вышку', kingSolo2.alive);
+
+// ——— арены и умнеющий с ареной ИИ ———
+check('арен 6 и у каждой своя тема и сложность', ARENAS.length === 6 &&
+  ARENAS.every((a) => a.colors && a.colors.river && a.colors.fieldA && a.difficulty >= 0 && a.difficulty <= 5));
+check('пороги арен по возрастанию', ARENAS.every((a, i) => i === 0 || a.min > ARENAS[i - 1].min));
+check('арена растёт с кубками', arenaFor(0).id === ARENAS[0].id && arenaFor(400).id === ARENAS[1].id &&
+  arenaFor(2799).id !== ARENAS[5].id && arenaFor(2800).id === ARENAS[5].id);
+check('nextArena указывает вперёд', nextArena(0) && nextArena(0).min === 400 && nextArena(99999) === null);
+
+const fakeB = { finished: true, units: [], towers: [], teams: { ai: { hand: [], elixir: 0 }, player: { hand: [], elixir: 0 } }, card: () => null, deploy: () => null, canPlaceAt: () => true };
+check('ИИ принимает сложность и держит её в 0..5',
+  new BattleAI(fakeB, 'ai', 5).d === 5 && new BattleAI(fakeB, 'ai', 99).d === 5 && new BattleAI(fakeB, 'ai').d === 0);
+const tLo = new BattleAI(fakeB, 'ai', 0).thinkIn;
+const tHi = new BattleAI(fakeB, 'ai', 5).thinkIn;
+check(`ИИ высокой арены думает быстрее (низ ${tLo.toFixed(2)}с ≥ 1.29, высокий ${tHi.toFixed(2)}с ≤ 1.41)`,
+  tLo >= 1.29 && tHi <= 1.41 && tHi < 1.5);
+
+// интеграция: ИИ каждой сложности играет и что-то выставляет
+for (const d of [0, 2, 5]) {
+  const bb = new Battle({ playerDeck: deckP, enemyDeck: deckA, cardsById });
+  const ai = new BattleAI(bb, 'ai', d);
+  let placed = 0;
+  const origDeploy = bb.deploy.bind(bb);
+  bb.deploy = (...args) => { const r = origDeploy(...args); if (r) placed++; return r; };
+  for (let t = 0; t < 40 && !bb.finished; t += 0.05) { ai.update(0.05); bb.update(0.05); }
+  check(`ИИ сложности ${d} играет без ошибок и выставляет юнитов`, placed >= 1);
+}
+
+const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8');
+check('уровень карты виден на картах (card-level)', uiSrc.includes('card-level'));
+check('надпись арены над картой боя (battle-arena)', uiSrc.includes('battle-arena'));
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);

@@ -7,6 +7,14 @@ const PLAYER_RING = '#4a90ff';
 const ENEMY_RING = '#e05555';
 const MARGIN = 1.35; // поля за стенами
 
+// тема арены по умолчанию (Зелёные луга)
+const DEFAULT_THEME = {
+  wall: '#2c3a55', fieldA: '#3f7d46', fieldB: '#468a4e',
+  ownTint: 'rgba(60,110,220,0.10)', enemyTint: 'rgba(220,90,70,0.08)',
+  river: '#2e7dd6', riverLine: 'rgba(255,255,255,0.12)',
+  bridge: '#a5794c', bridgePlank: 'rgba(72,46,22,0.32)', bridgeRail: '#8a6238', bridgeEdge: 'rgba(52,32,14,0.5)'
+};
+
 function clampN(v, a, b) {
   return v < a ? a : v > b ? b : v;
 }
@@ -329,8 +337,9 @@ export class BattleView {
   }
 
   _drawArena(ctx, W, H) {
+    const th = (this.opts && this.opts.theme) || DEFAULT_THEME;
     // поля за стенами
-    ctx.fillStyle = '#2c3a55';
+    ctx.fillStyle = th.wall;
     ctx.fillRect(0, 0, W, H);
 
     const tl = this.worldToScreen(-(ARENA.halfW), ARENA.halfH);
@@ -339,20 +348,20 @@ export class BattleView {
 
     // газон полосами
     for (let i = 0; i < 14; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#3f7d46' : '#468a4e';
+      ctx.fillStyle = i % 2 === 0 ? th.fieldA : th.fieldB;
       ctx.fillRect(tl.x, tl.y + (i / 14) * fh, fw, fh / 14 + 1);
     }
 
     // подсветка половин (своя — синеватая, вражеская — тепловатая)
-    ctx.fillStyle = 'rgba(60,110,220,0.10)';
+    ctx.fillStyle = th.ownTint;
     ctx.fillRect(tl.x, tl.y + fh / 2, fw, fh / 2);
-    ctx.fillStyle = 'rgba(220,90,70,0.08)';
+    ctx.fillStyle = th.enemyTint;
     ctx.fillRect(tl.x, tl.y, fw, fh / 2);
 
     // река
     const r1 = this.worldToScreen(0, ARENA.riverY);
     const r2 = this.worldToScreen(0, -ARENA.riverY);
-    ctx.fillStyle = '#2e7dd6';
+    ctx.fillStyle = th.river;
     ctx.fillRect(tl.x, r1.y, fw, r2.y - r1.y);
 
     // мосты — дощатый настил
@@ -361,10 +370,10 @@ export class BattleView {
       const b2 = this.worldToScreen(bx + ARENA.bridgeHalfW, -ARENA.riverY - 0.9);
       const w = b2.x - b1.x, h = b2.y - b1.y;
       // настил
-      ctx.fillStyle = '#a5794c';
+      ctx.fillStyle = th.bridge;
       ctx.fillRect(b1.x, b1.y, w, h);
       // поперечные доски
-      ctx.strokeStyle = 'rgba(72, 46, 22, 0.32)';
+      ctx.strokeStyle = th.bridgePlank;
       ctx.lineWidth = Math.max(1.5, w * 0.03);
       const planks = 7;
       for (let i = 1; i < planks; i++) {
@@ -375,12 +384,12 @@ export class BattleView {
         ctx.stroke();
       }
       // боковые брусья
-      ctx.fillStyle = '#8a6238';
+      ctx.fillStyle = th.bridgeRail;
       const rail = Math.max(3, w * 0.12);
       ctx.fillRect(b1.x, b1.y, rail, h);
       ctx.fillRect(b2.x - rail, b1.y, rail, h);
       // тень краёв
-      ctx.strokeStyle = 'rgba(52, 32, 14, 0.5)';
+      ctx.strokeStyle = th.bridgeEdge;
       ctx.lineWidth = 2;
       ctx.strokeRect(b1.x, b1.y, w, h);
     }
