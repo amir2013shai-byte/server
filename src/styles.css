@@ -202,25 +202,68 @@ select.input { appearance: none; }
 .hand-card .card-level { font-size: 10px; right: -4px; bottom: -4px; }
 .deck-slot .card-level { font-size: 8.5px; right: -3px; bottom: -3px; padding: 0 4px; }
 
-/* ————— код-режим: C++ задача за эликсир ————— */
-.code-fab {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 800;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #2f9e5f, #1d7a44);
-  border: 1px solid #7fe0a8;
-  color: #fff;
-  white-space: nowrap;
+/* ————— особый режим «Экзамен»: код на C++ и вопросы ЕГЭ ————— */
+.exam-cards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0;
 }
-.code-fab:active { transform: scale(0.95); }
-.code-overlay { z-index: 60; }
-.code-modal {
-  width: min(520px, 94vw);
-  max-height: 88vh;
-  overflow-y: auto;
+.exam-card {
+  flex: 1;
+  min-width: 240px;
+  padding: 18px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(120, 170, 255, 0.35);
+  color: #eef2fb;
+  text-align: center;
+  cursor: pointer;
+}
+.exam-card:active { transform: scale(0.97); }
+.exam-card b { font-size: 16px; display: block; margin: 8px 0 4px; }
+.exam-subjects {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.exam-subject {
+  padding: 14px 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #eef2fb;
+  text-align: center;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.exam-subject:active { transform: scale(0.95); }
+.exam-subject b { font-size: 12.5px; line-height: 1.25; }
+.quiz-options { display: flex; flex-direction: column; gap: 8px; }
+.quiz-opt {
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #eef2fb;
   text-align: left;
+  font-size: 13.5px;
+  cursor: pointer;
 }
+.quiz-opt:active { transform: scale(0.98); }
+.quiz-opt.correct {
+  background: rgba(45, 160, 90, 0.28);
+  border-color: rgba(80, 220, 130, 0.65);
+}
+.quiz-opt.wrong {
+  background: rgba(190, 60, 60, 0.22);
+  border-color: rgba(255, 110, 110, 0.55);
+}
+.quiz-opt:disabled { opacity: 0.95; cursor: default; }
 .code-sig {
   background: rgba(10, 16, 32, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.12);

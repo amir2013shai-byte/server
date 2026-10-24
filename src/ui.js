@@ -13,6 +13,7 @@ import {
 import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
 import { ARENAS, arenaFor, nextArena } from './data/arenas.js';
 import { pickTask, checkSolution } from './code/cppTasks.js';
+import { SUBJECTS, QUESTIONS, pickQuestions } from './code/quiz.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -264,6 +265,7 @@ export class App {
             <button class="btn btn-blue" id="m-deck">🃏 Моя колода (${this.deck.length}/8)</button>
             <button class="btn btn-ghost" id="m-progress">💰 Прокачка и сундуки</button>
             <button class="btn btn-ghost" id="m-rating">🏆 Рейтинг и сезоны</button>
+            <button class="btn btn-primary" id="m-exam">🎓 Особый режим — Экзамен</button>
             <button class="btn btn-ghost" id="m-replays">🎬 Реплеи (${this.replays.length})</button>
             <button class="btn btn-ghost" id="m-cards">📚 Коллекция карт</button>
             <button class="btn btn-ghost" id="m-editor">🛠 Редактор карт</button>
@@ -284,6 +286,7 @@ export class App {
     this.root.querySelector('#m-deck').onclick = () => { this.sfx.play('ui'); this.showDeck(); };
     this.root.querySelector('#m-progress').onclick = () => { this.sfx.play('ui'); this.showProgress(); };
     this.root.querySelector('#m-rating').onclick = () => { this.sfx.play('ui'); this.showRating(); };
+    this.root.querySelector('#m-exam').onclick = () => { this.sfx.play('ui'); this.showExam(); };
     this.root.querySelector('#m-replays').onclick = () => { this.sfx.play('ui'); this.showReplays(); };
     this.root.querySelector('#m-cards').onclick = () => { this.sfx.play('ui'); this.showCollection(); };
     this.root.querySelector('#m-editor').onclick = () => { this.sfx.play('ui'); this.showCardList(); };
@@ -2355,7 +2358,6 @@ export class App {
             <div class="elixir-bar"><div class="elixir-fill" id="b-elixir"></div></div>
             <div class="elixir-num" id="b-elixir-num">5</div>
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
-            ${!online && mode !== 'replay' ? '<button class="btn code-fab" id="b-code" title="Решить C++ задачу прямо в бою — +2 эликсира">⌨ +2 эликсир</button>' : ''}
           </div>
           <div class="hand-row" id="b-hand"></div>
           <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену: войска — на свою половину, заклинания — куда угодно</div>
@@ -2377,6 +2379,16 @@ export class App {
         doubleElixirAt: rules.doubleElixirAt,
         suddenDeath: rules.suddenDeath
       });
+      // запас эликсира из особого режима «Экзамен» (не в онлайне и не в реплее)
+      if (!online && mode !== 'replay') {
+        const bank = this._examBank();
+        if (bank > 0 && this.battle.teams && this.battle.teams.player) {
+          this.battle.teams.player.elixir = Math.min(10, this.battle.teams.player.elixir + bank);
+          this.progress.examBank = 0;
+          accounts.saveProgress(this.progress);
+          setTimeout(() => this.toast(`🎓 +${bank} эликсира из Экзамена!`), 400);
+        }
+      }
       // онлайн: командой соперника управляет живой игрок, а не ИИ;
       // сложность ИИ растёт с ареной (кубками)
       this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai', arena.difficulty);
@@ -2386,7 +2398,6 @@ export class App {
       }
     }
     this.battleRules = rules;
-    this._codeSolves = [];
     // запись реплея (кроме просмотра реплеев)
     this._recorder = mode === 'replay' ? null : new ReplayRecorder({
       mode,
@@ -2448,94 +2459,263 @@ export class App {
       storage.setSettings(this.settings);
       this.root.querySelector('#b-mute').textContent = this.sfx.enabled ? '🔊' : '🔇';
     };
-    const codeBtn = this.root.querySelector('#b-code');
-    if (codeBtn) codeBtn.onclick = () => this._openCodeMode();
 
     this.selectedCard = null;
     this._renderHand();
     this._battleLoop();
   }
 
-  // ————— код-режим: C++ задача за эликсир прямо в бою —————
+  // ————— особый режим «Экзамен»: код на C++ и вопросы ЕГЭ за эликсир —————
 
-  _openCodeMode() {
-    if (!this.battle || this.battle.finished) { this.toast('Бой уже закончен'); return; }
-    if (!this._codeSolves) this._codeSolves = [];
-    if (this._codeSolves.length >= 3) { this.toast('Все 3 задания в этом бою уже решены'); return; }
-    this._codeTask = pickTask(this._codeSolves);
-    this._showCodeOverlay(null);
+  _examBank() {
+    return Math.max(0, Math.min(5, this.progress.examBank || 0));
   }
 
-  _showCodeOverlay(result) {
-    this._closeCodeOverlay();
-    const task = this._codeTask;
-    if (!task) return;
-    const solved = (this._codeSolves || []).length;
-    const ov = document.createElement('div');
-    ov.className = 'overlay code-overlay';
-    ov.innerHTML = `
-      <div class="modal code-modal">
-        <div class="row" style="align-items:center">
-          <div style="font-size:26px">⌨️</div>
-          <div style="flex:1">
-            <h2 style="margin:0;font-size:17px">Код-режим: ${escapeHtml(task.title)}</h2>
-            <div class="muted" style="font-size:11px">Задание ${solved + 1}/3 • решите — и получите +2 эликсира в этот бой</div>
+  _examReward(n) {
+    const before = this._examBank();
+    this.progress.examBank = Math.min(5, (this.progress.examBank || 0) + n);
+    accounts.saveProgress(this.progress);
+    return this.progress.examBank - before;
+  }
+
+  showExam() {
+    const bank = this._examBank();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🎓 Особый режим — Экзамен</div>
+            <div class="top-sub">Решай — и бери эликсир в бои</div>
           </div>
-          <button class="btn btn-ghost" id="code-close" style="padding:6px 10px">✕</button>
         </div>
-        <p style="color:#b8c0d8;margin:10px 0 6px;font-size:13px">${escapeHtml(task.brief)}</p>
-        <div class="code-sig"><code>${escapeHtml(task.signature)}</code></div>
-        <div class="muted" style="font-size:11px;margin:6px 0">Пример: ${escapeHtml(task.signature.split('(')[0].split(/\s+/).pop())}(${task.examples[0].args.map((a) => (typeof a === 'boolean' ? (a ? 'true' : 'false') : a)).join(', ')}) → ${typeof task.examples[0].expect === 'boolean' ? (task.examples[0].expect ? 'true' : 'false') : task.examples[0].expect}</div>
-        <textarea class="code-editor" id="code-src" spellcheck="false" autocapitalize="off" autocorrect="off" rows="9">${escapeHtml(task.skeleton)}</textarea>
-        ${result ? (result.ok
-          ? '<div class="code-result ok">✅ Все тесты пройдены! +2 эликсира</div>'
-          : `<div class="code-result err">❌ ${escapeHtml(result.error)}</div>`) : ''}
-        <div class="row" style="gap:8px;margin-top:10px">
-          ${result && result.ok
-            ? `<button class="btn btn-primary btn-block" id="code-next">${solved + 1 < 3 ? '▶ Следующее задание' : '🎮 В бой'}</button>`
-            : `<button class="btn btn-primary" style="flex:1" id="code-check">▶ Проверить</button>
-               <button class="btn btn-ghost" id="code-hint">💡</button>`}
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:42px">⚡</div>
+            <h3 style="margin:6px 0">Запас эликсира: +${bank}/5</h3>
+            <div class="muted">Каждый правильный ответ — +1 к запасу. В следующем бою запас добавится к стартовому эликсиру.</div>
+          </div>
+          <div class="exam-cards">
+            <button class="exam-card" id="ex-cpp">
+              <div style="font-size:36px">⌨️</div>
+              <b>Код на C++</b>
+              <div class="muted" style="font-size:12px">8 заданий: арифметика, условия, максимумы. Код реально проверяется на тестах!</div>
+            </button>
+            <button class="exam-card" id="ex-quiz">
+              <div style="font-size:36px">📚</div>
+              <b>ЕГЭ — 11 класс</b>
+              <div class="muted" style="font-size:12px">Вопросы по всем 12 предметам: от русского языка до астрономии</div>
+            </button>
+          </div>
+          <div class="form-section">
+            <h3>Как это работает</h3>
+            <div class="info-list">
+              Решай задания по C++ или отвечай на вопросы ЕГЭ — каждый верный ответ даёт +1 к запасу эликсира (до +5).<br><br>
+              В бою запас автоматически добавится к стартовому эликсиру и потратится. Заработай новый — снова в бой с запасом!
+            </div>
+          </div>
         </div>
-        <div class="muted" style="font-size:10.5px;margin-top:8px">Подмножество C++: int/bool, if/else, while/for, арифметика, сравнения, && || ! — код реально проверяется на тестах. Бой пока идёт!</div>
-      </div>`;
-    document.body.appendChild(ov);
-    this._codeOv = ov;
-    ov.querySelector('#code-close').onclick = () => this._closeCodeOverlay();
-    const checkBtn = ov.querySelector('#code-check');
-    if (checkBtn) checkBtn.onclick = () => this._checkCode();
-    const hintBtn = ov.querySelector('#code-hint');
-    if (hintBtn) hintBtn.onclick = () => this.toast(`Подсказка: ${task.hint}`);
-    const nextBtn = ov.querySelector('#code-next');
-    if (nextBtn) nextBtn.onclick = () => {
-      if ((this._codeSolves || []).length >= 3) { this._closeCodeOverlay(); return; }
-      this._codeTask = pickTask(this._codeSolves);
-      this._showCodeOverlay(null);
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#ex-cpp').onclick = () => {
+      this.sfx.play('ui');
+      this._examTask = pickTask([]);
+      this.showExamCpp(null);
     };
+    this.root.querySelector('#ex-quiz').onclick = () => { this.sfx.play('ui'); this.showExamSubjects(); };
   }
 
-  _checkCode() {
-    const task = this._codeTask;
-    const ta = this._codeOv && this._codeOv.querySelector('#code-src');
+  // ——— C++ в особом режиме ———
+
+  showExamCpp(result) {
+    const task = this._examTask || pickTask([]);
+    this._examTask = task;
+    const bank = this._examBank();
+    const fnName = task.signature.split('(')[0].split(/\s+/).pop();
+    const ex = task.examples[0];
+    const fmt = (v) => (typeof v === 'boolean' ? (v ? 'true' : 'false') : v);
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">⌨️ Код на C++</div>
+            <div class="top-sub">Запас эликсира: +${bank}/5</div>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="ex-next">↻</button>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3 style="margin:4px 0">${escapeHtml(task.title)}</h3>
+            <p style="color:#b8c0d8;margin:6px 0 8px;font-size:13px">${escapeHtml(task.brief)}</p>
+            <div class="code-sig"><code>${escapeHtml(task.signature)}</code></div>
+            <div class="muted" style="font-size:11px;margin:6px 0 10px">Пример: ${escapeHtml(fnName)}(${ex.args.map(fmt).join(', ')}) → ${fmt(ex.expect)}</div>
+            <textarea class="code-editor" id="ex-src" spellcheck="false" autocapitalize="off" autocorrect="off" rows="10">${escapeHtml(task.skeleton)}</textarea>
+            ${result ? (result.ok
+              ? `<div class="code-result ok">✅ Все тесты пройдены! ${escapeHtml(result.rewardMsg || '+1 к запасу эликсира')}</div>`
+              : `<div class="code-result err">❌ ${escapeHtml(result.error)}</div>`) : ''}
+            <div class="row" style="gap:8px;margin-top:10px">
+              ${result && result.ok
+                ? `<button class="btn btn-primary btn-block" id="ex-again">▶ Следующее задание</button>`
+                : `<button class="btn btn-primary" style="flex:1" id="ex-check">▶ Проверить</button>
+                   <button class="btn btn-ghost" id="ex-hint">💡</button>`}
+            </div>
+            <div class="muted" style="font-size:10.5px;margin-top:8px">Подмножество C++: int/bool, if/else, while/for, арифметика, сравнения, && || !, функции — код реально проверяется на тестах.</div>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showExam();
+    const againBtn = this.root.querySelector('#ex-again');
+    if (againBtn) againBtn.onclick = () => {
+      this._examTask = pickTask([task.id]);
+      this.showExamCpp(null);
+    };
+    this.root.querySelector('#ex-next').onclick = () => {
+      this._examTask = pickTask([task.id]);
+      this.showExamCpp(null);
+    };
+    const checkBtn = this.root.querySelector('#ex-check');
+    if (checkBtn) checkBtn.onclick = () => this._examCheck();
+    const hintBtn = this.root.querySelector('#ex-hint');
+    if (hintBtn) hintBtn.onclick = () => this.toast(`Подсказка: ${task.hint}`);
+  }
+
+  _examCheck() {
+    const task = this._examTask;
+    const ta = this.root.querySelector('#ex-src');
     if (!task || !ta) return;
     const res = checkSolution(task, ta.value);
     if (res.ok) {
-      // награда: +2 эликсира в текущий бой
-      const team = this.battle && this.battle.teams && this.battle.teams.player;
-      if (team) {
-        const before = team.elixir;
-        team.elixir = Math.min(10, team.elixir + 2);
-        const got = Math.round((team.elixir - before) * 10) / 10;
-        if (got <= 0) this.toast('Эликсир и так полный — награда не прибавилась');
-      }
-      (this._codeSolves = this._codeSolves || []).push(task.id);
+      const got = this._examReward(1);
       this.progress.codeSolved = (this.progress.codeSolved || 0) + 1;
       accounts.saveProgress(this.progress);
+      res.rewardMsg = got > 0 ? '+1 к запасу эликсира!' : 'Запас уже полный (+5/5)';
     }
-    this._showCodeOverlay(res);
+    this.showExamCpp(res);
   }
 
-  _closeCodeOverlay() {
-    if (this._codeOv) { this._codeOv.remove(); this._codeOv = null; }
+  // ——— вопросы ЕГЭ ———
+
+  showExamSubjects() {
+    const bank = this._examBank();
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">📚 ЕГЭ — 11 класс</div>
+            <div class="top-sub">Выберите предмет • запас эликсира: +${bank}/5</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="exam-subjects">
+            ${SUBJECTS.map((s) => `
+              <button class="exam-subject" data-s="${s.id}">
+                <span style="font-size:26px">${s.icon}</span>
+                <b>${s.name}</b>
+                <div class="muted" style="font-size:10.5px">${(QUESTIONS[s.id] || []).length} вопросов</div>
+              </button>`).join('')}
+          </div>
+          <div class="muted mt12" style="font-size:11px;text-align:center">В каждом предмете — 5 случайных вопросов с пояснениями. За верный ответ — +1 к запасу эликсира.</div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showExam();
+    this.root.querySelectorAll('[data-s]').forEach((el) => {
+      el.onclick = () => { this.sfx.play('ui'); this.showExamQuiz(el.dataset.s); };
+    });
+  }
+
+  showExamQuiz(subjectId, state) {
+    const subj = SUBJECTS.find((s) => s.id === subjectId) || SUBJECTS[0];
+    const st = state || { i: 0, correct: 0, picked: null, list: pickQuestions(subjectId, 5) };
+    if (!st.list.length) { this.toast('Вопросов пока нет'); this.showExamSubjects(); return; }
+    if (st.i >= st.list.length) { this._examQuizDone(subj, st); return; }
+    const q = st.list[st.i];
+    const bank = this._examBank();
+    const letter = (i) => String.fromCharCode(0x410 + i); // А) Б) В) Г)
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">${subj.icon} ${escapeHtml(subj.name)}</div>
+            <div class="top-sub">Вопрос ${st.i + 1}/${st.list.length} • верно: ${st.correct} • запас: +${bank}/5</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3 style="margin:6px 0 12px;font-size:16px">${escapeHtml(q.q)}</h3>
+            <div class="quiz-options">
+              ${q.options.map((o, idx) => {
+                let cls = 'quiz-opt';
+                if (st.picked !== null) {
+                  if (idx === q.a) cls += ' correct';
+                  else if (idx === st.picked) cls += ' wrong';
+                }
+                return `<button class="${cls}" data-o="${idx}" ${st.picked !== null ? 'disabled' : ''}><b>${letter(idx)})</b> ${escapeHtml(o)}</button>`;
+              }).join('')}
+            </div>
+            ${st.picked !== null ? `
+              <div class="code-result ${st.picked === q.a ? 'ok' : 'err'}" style="margin-top:12px">
+                ${st.picked === q.a ? '✅ Верно!' : '❌ Неверно.'} ${escapeHtml(q.why)}
+              </div>
+              <button class="btn btn-primary btn-block" id="q-next" style="margin-top:10px">${st.i + 1 < st.list.length ? 'Далее →' : '🎓 Итоги'}</button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showExamSubjects();
+    this.root.querySelectorAll('[data-o]').forEach((el) => {
+      el.onclick = () => {
+        if (st.picked !== null) return;
+        st.picked = parseInt(el.dataset.o, 10);
+        if (st.picked === q.a) st.correct++;
+        this.showExamQuiz(subjectId, st);
+      };
+    });
+    const nextBtn = this.root.querySelector('#q-next');
+    if (nextBtn) nextBtn.onclick = () => {
+      st.i++;
+      st.picked = null;
+      this.showExamQuiz(subjectId, st);
+    };
+  }
+
+  _examQuizDone(subj, st) {
+    const got = this._examReward(st.correct);
+    const pct = Math.round((st.correct / st.list.length) * 100);
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">${subj.icon} Итоги</div>
+            <div class="top-sub">${escapeHtml(subj.name)} • ЕГЭ — 11 класс</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:52px">${pct >= 80 ? '🏆' : pct >= 40 ? '💪' : '📖'}</div>
+            <h3 style="margin:8px 0">${st.correct} из ${st.list.length} верно (${pct}%)</h3>
+            <div class="muted">${got > 0 ? `⚡ Награда: +${got} к запасу эликсира!` : '⚡ Запас уже полный (+5/5) — сначала сходи в бой!'}</div>
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" style="flex:1" id="q-again">↻ Ещё раз</button>
+            <button class="btn btn-ghost" style="flex:1" id="q-subjects">📚 К предметам</button>
+          </div>
+          <button class="btn btn-ghost btn-block mt12" id="q-menu">🎓 В меню режима</button>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showExamSubjects();
+    this.root.querySelector('#q-again').onclick = () => this.showExamQuiz(subj.id);
+    this.root.querySelector('#q-subjects').onclick = () => this.showExamSubjects();
+    this.root.querySelector('#q-menu').onclick = () => this.showExam();
   }
 
   _renderHand() {
@@ -2916,7 +3096,6 @@ export class App {
   }
 
   _stopBattle() {
-    this._closeCodeOverlay();
     if (this.battleRaf) cancelAnimationFrame(this.battleRaf);
     this.battleRaf = 0;
     this._unbindHandDrag();
