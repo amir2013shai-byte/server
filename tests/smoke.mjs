@@ -4,6 +4,8 @@ import { ALL_CARDS, withCustom, getCard } from '../src/data/cards.js';
 import { Battle, MATCH_TIME, ARENA } from '../src/game/engine.js';
 import { BattleAI } from '../src/game/ai.js';
 import { ARENAS, arenaFor, nextArena } from '../src/data/arenas.js';
+import { runCpp } from '../src/code/cppRun.js';
+import { EASY_TASKS } from '../src/code/cppTasks.js';
 
 let failed = 0;
 function check(name, cond) {
@@ -251,6 +253,8 @@ for (const d of [0, 2, 5]) {
 const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8');
 check('уровень карты виден на картах (card-level)', uiSrc.includes('card-level'));
 check('надпись арены над картой боя (battle-arena)', uiSrc.includes('battle-arena'));
+check('код-режим в бою (b-code)', uiSrc.includes('b-code') && uiSrc.includes('_openCodeMode'));
+check('код-режим: интерпретатор и задания подключены', typeof runCpp === 'function' && EASY_TASKS.length >= 8);
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);

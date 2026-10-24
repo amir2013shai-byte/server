@@ -12,6 +12,7 @@ import {
 } from './progress.js';
 import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
 import { ARENAS, arenaFor, nextArena } from './data/arenas.js';
+import { pickTask, checkSolution } from './code/cppTasks.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -2354,6 +2355,7 @@ export class App {
             <div class="elixir-bar"><div class="elixir-fill" id="b-elixir"></div></div>
             <div class="elixir-num" id="b-elixir-num">5</div>
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
+            ${!online && mode !== 'replay' ? '<button class="btn code-fab" id="b-code" title="Решить C++ задачу прямо в бою — +2 эликсира">⌨ +2 эликсир</button>' : ''}
           </div>
           <div class="hand-row" id="b-hand"></div>
           <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену: войска — на свою половину, заклинания — куда угодно</div>
@@ -2384,6 +2386,7 @@ export class App {
       }
     }
     this.battleRules = rules;
+    this._codeSolves = [];
     // запись реплея (кроме просмотра реплеев)
     this._recorder = mode === 'replay' ? null : new ReplayRecorder({
       mode,
@@ -2445,10 +2448,94 @@ export class App {
       storage.setSettings(this.settings);
       this.root.querySelector('#b-mute').textContent = this.sfx.enabled ? '🔊' : '🔇';
     };
+    const codeBtn = this.root.querySelector('#b-code');
+    if (codeBtn) codeBtn.onclick = () => this._openCodeMode();
 
     this.selectedCard = null;
     this._renderHand();
     this._battleLoop();
+  }
+
+  // ————— код-режим: C++ задача за эликсир прямо в бою —————
+
+  _openCodeMode() {
+    if (!this.battle || this.battle.finished) { this.toast('Бой уже закончен'); return; }
+    if (!this._codeSolves) this._codeSolves = [];
+    if (this._codeSolves.length >= 3) { this.toast('Все 3 задания в этом бою уже решены'); return; }
+    this._codeTask = pickTask(this._codeSolves);
+    this._showCodeOverlay(null);
+  }
+
+  _showCodeOverlay(result) {
+    this._closeCodeOverlay();
+    const task = this._codeTask;
+    if (!task) return;
+    const solved = (this._codeSolves || []).length;
+    const ov = document.createElement('div');
+    ov.className = 'overlay code-overlay';
+    ov.innerHTML = `
+      <div class="modal code-modal">
+        <div class="row" style="align-items:center">
+          <div style="font-size:26px">⌨️</div>
+          <div style="flex:1">
+            <h2 style="margin:0;font-size:17px">Код-режим: ${escapeHtml(task.title)}</h2>
+            <div class="muted" style="font-size:11px">Задание ${solved + 1}/3 • решите — и получите +2 эликсира в этот бой</div>
+          </div>
+          <button class="btn btn-ghost" id="code-close" style="padding:6px 10px">✕</button>
+        </div>
+        <p style="color:#b8c0d8;margin:10px 0 6px;font-size:13px">${escapeHtml(task.brief)}</p>
+        <div class="code-sig"><code>${escapeHtml(task.signature)}</code></div>
+        <div class="muted" style="font-size:11px;margin:6px 0">Пример: ${escapeHtml(task.signature.split('(')[0].split(/\s+/).pop())}(${task.examples[0].args.map((a) => (typeof a === 'boolean' ? (a ? 'true' : 'false') : a)).join(', ')}) → ${typeof task.examples[0].expect === 'boolean' ? (task.examples[0].expect ? 'true' : 'false') : task.examples[0].expect}</div>
+        <textarea class="code-editor" id="code-src" spellcheck="false" autocapitalize="off" autocorrect="off" rows="9">${escapeHtml(task.skeleton)}</textarea>
+        ${result ? (result.ok
+          ? '<div class="code-result ok">✅ Все тесты пройдены! +2 эликсира</div>'
+          : `<div class="code-result err">❌ ${escapeHtml(result.error)}</div>`) : ''}
+        <div class="row" style="gap:8px;margin-top:10px">
+          ${result && result.ok
+            ? `<button class="btn btn-primary btn-block" id="code-next">${solved + 1 < 3 ? '▶ Следующее задание' : '🎮 В бой'}</button>`
+            : `<button class="btn btn-primary" style="flex:1" id="code-check">▶ Проверить</button>
+               <button class="btn btn-ghost" id="code-hint">💡</button>`}
+        </div>
+        <div class="muted" style="font-size:10.5px;margin-top:8px">Подмножество C++: int/bool, if/else, while/for, арифметика, сравнения, && || ! — код реально проверяется на тестах. Бой пока идёт!</div>
+      </div>`;
+    document.body.appendChild(ov);
+    this._codeOv = ov;
+    ov.querySelector('#code-close').onclick = () => this._closeCodeOverlay();
+    const checkBtn = ov.querySelector('#code-check');
+    if (checkBtn) checkBtn.onclick = () => this._checkCode();
+    const hintBtn = ov.querySelector('#code-hint');
+    if (hintBtn) hintBtn.onclick = () => this.toast(`Подсказка: ${task.hint}`);
+    const nextBtn = ov.querySelector('#code-next');
+    if (nextBtn) nextBtn.onclick = () => {
+      if ((this._codeSolves || []).length >= 3) { this._closeCodeOverlay(); return; }
+      this._codeTask = pickTask(this._codeSolves);
+      this._showCodeOverlay(null);
+    };
+  }
+
+  _checkCode() {
+    const task = this._codeTask;
+    const ta = this._codeOv && this._codeOv.querySelector('#code-src');
+    if (!task || !ta) return;
+    const res = checkSolution(task, ta.value);
+    if (res.ok) {
+      // награда: +2 эликсира в текущий бой
+      const team = this.battle && this.battle.teams && this.battle.teams.player;
+      if (team) {
+        const before = team.elixir;
+        team.elixir = Math.min(10, team.elixir + 2);
+        const got = Math.round((team.elixir - before) * 10) / 10;
+        if (got <= 0) this.toast('Эликсир и так полный — награда не прибавилась');
+      }
+      (this._codeSolves = this._codeSolves || []).push(task.id);
+      this.progress.codeSolved = (this.progress.codeSolved || 0) + 1;
+      accounts.saveProgress(this.progress);
+    }
+    this._showCodeOverlay(res);
+  }
+
+  _closeCodeOverlay() {
+    if (this._codeOv) { this._codeOv.remove(); this._codeOv = null; }
   }
 
   _renderHand() {
@@ -2829,6 +2916,7 @@ export class App {
   }
 
   _stopBattle() {
+    this._closeCodeOverlay();
     if (this.battleRaf) cancelAnimationFrame(this.battleRaf);
     this.battleRaf = 0;
     this._unbindHandDrag();
