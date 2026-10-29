@@ -81,7 +81,6 @@ export function emptyProgress() {
     clanWar: { points: 0, fights: 0 },
     forges: 0,        // эволюций в кузнице
     mythics: 0,       // мифических карт (3 звезды)
-    quizCorrect: 0,   // верных ответов в «Экзамене»
     pass: { season: null, xp: 0, premium: false, claimed: [], claimedPremium: [] },
     ach: {}           // id достижения -> true (получено)
   };
@@ -136,7 +135,6 @@ export function normalizeProgress(p) {
   out.clanWarWins = Math.max(0, Math.floor(Number(p.clanWarWins) || 0));
   out.forges = Math.max(0, Math.floor(Number(p.forges) || 0));
   out.mythics = Math.max(0, Math.floor(Number(p.mythics) || 0));
-  out.quizCorrect = Math.max(0, Math.floor(Number(p.quizCorrect) || 0));
   out.evo = {};
   if (p.evo && typeof p.evo === 'object') {
     for (const [id, s] of Object.entries(p.evo)) {

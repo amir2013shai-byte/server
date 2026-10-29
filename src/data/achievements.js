@@ -30,10 +30,6 @@ export const ACHIEVEMENTS = [
     check: (s) => s.forges >= 1 },
   { id: 'mythic_1', icon: '✨', title: 'Мифический герой', desc: 'Доведи карту до 3 звёзд эволюции', gold: 300,
     check: (s) => s.mythics >= 1 },
-  { id: 'code_10', icon: '⌨️', title: 'Программист', desc: 'Решай 10 задач на C++', gold: 150,
-    check: (s) => s.codeSolved >= 10 },
-  { id: 'quiz_50', icon: '📚', title: 'Отличник', desc: '50 верных ответов в «Экзамене»', gold: 200,
-    check: (s) => s.quizCorrect >= 50 },
   { id: 'level_10', icon: '⭐', title: 'Опытный игрок', desc: 'Достигни 10 уровня игрока', gold: 250,
     check: (s) => s.level >= 10 },
   { id: 'pass_10', icon: '🎖', title: 'Коллекционер наград', desc: 'Достигни 10 уровня бой-пропуска', gold: 200,
@@ -53,8 +49,6 @@ export function statsFrom(progress, extra = {}) {
     clanWarWins: p.clanWarWins || 0,
     forges: p.forges || 0,
     mythics: p.mythics || 0,
-    codeSolved: p.codeSolved || 0,
-    quizCorrect: p.quizCorrect || 0,
     level: p.level || 1,
     passTier: extra.passTier || 0
   };

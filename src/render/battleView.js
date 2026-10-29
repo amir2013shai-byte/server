@@ -24,6 +24,8 @@ export class BattleView {
     this.container = container;
     this.battle = battle;
     this.opts = opts || {};
+    this.weather = (opts && opts.weather) || 'clear';
+    this._wparts = [];
     this.pendingCard = null;
     this.pointer = { down: false, x: 0, y: 0 };
     this.projectiles = [];
@@ -200,7 +202,87 @@ export class BattleView {
     for (const f of this.floating) f.t += dt;
     this.floating = this.floating.filter((f) => f.t < f.dur);
 
+    this._stepWeather(dt);
     this._draw();
+  }
+
+  // ——— погода и время суток ———
+
+  _stepWeather(dt) {
+    const w = this.weather;
+    if (w !== 'rain' && w !== 'snow') { this._wparts = []; return; }
+    const W = this.canvas ? this.canvas.width : 0;
+    const H = this.canvas ? this.canvas.height : 0;
+    if (!W || !H) return;
+    const want = w === 'rain' ? 70 : 50;
+    while (this._wparts.length < want) {
+      this._wparts.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        v: w === 'rain' ? (420 + Math.random() * 320) : (28 + Math.random() * 34),
+        d: w === 'rain' ? (-0.22 - Math.random() * 0.12) : (Math.random() - 0.5) * 0.35,
+        r: w === 'rain' ? 1 + Math.random() * 1.4 : 1 + Math.random() * 2.2
+      });
+    }
+    for (const q of this._wparts) {
+      q.y += q.v * dt;
+      q.x += q.v * q.d * dt;
+      if (q.y > H + 6) { q.y = -6; q.x = Math.random() * W; }
+      if (q.x < -6) q.x = W + 4;
+      if (q.x > W + 6) q.x = -4;
+    }
+  }
+
+  _drawWeather(ctx, W, H) {
+    const w = this.weather;
+    if (w === 'night') {
+      ctx.fillStyle = 'rgba(10, 18, 55, 0.34)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(180, 210, 255, 0.7)';
+      for (let i = 0; i < 26; i++) {
+        const sx = ((i * 137) % Math.max(1, W - 40)) + 20;
+        const sy = ((i * 71) % Math.max(1, H / 3)) + 10;
+        const tw = 0.9 + 0.5 * Math.sin(this._t * 1.6 + i);
+        ctx.globalAlpha = 0.35 * tw;
+        ctx.fillRect(sx, sy, 2.2, 2.2);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (w === 'sunset') {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, 'rgba(255, 120, 50, 0.22)');
+      g.addColorStop(0.55, 'rgba(255, 80, 90, 0.10)');
+      g.addColorStop(1, 'rgba(60, 20, 90, 0.16)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(255, 190, 90, 0.85)';
+      ctx.beginPath();
+      ctx.arc(W * 0.82, H * 0.14, 26, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (w === 'rain' || w === 'snow') {
+      if (w === 'rain') {
+        ctx.fillStyle = 'rgba(20, 34, 66, 0.14)';
+        ctx.fillRect(0, 0, W, H);
+      }
+      for (const q of this._wparts) {
+        if (w === 'rain') {
+          ctx.strokeStyle = 'rgba(190, 215, 255, 0.5)';
+          ctx.lineWidth = q.r * 0.8;
+          ctx.beginPath();
+          ctx.moveTo(q.x, q.y);
+          ctx.lineTo(q.x + q.v * q.d * 0.045, q.y + q.v * 0.045);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
   }
 
   // ——— отрисовка ———
@@ -213,6 +295,7 @@ export class BattleView {
     ctx.clearRect(0, 0, W, H);
 
     this._drawArena(ctx, W, H);
+    this._drawWeather(ctx, W, H);
 
     // зоны (яд)
     for (const z of this.battle.zones || []) {

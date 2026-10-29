@@ -73,9 +73,9 @@ const TROOPS = [
     model: winged('#6d5bb5', '#9b7ee8', '#4c3d85')
   }),
   card({
-    id: 'bats', name: 'Летучие мыши', rarity: 'common', type: 'troop', cost: 1, count: 4,
+    id: 'bats', name: 'Летучие мыши', rarity: 'common', type: 'troop', cost: 1, count: 3,
     desc: 'Стая быстрых летучих мышей. Опасны в большом количестве.',
-    hp: 65, damage: 65, hitSpeed: 1.0, range: 0.8, speed: 1.7, targets: 'both', flying: true,
+    hp: 55, damage: 52, hitSpeed: 1.0, range: 0.8, speed: 1.4, targets: 'both', flying: true,
     model: winged('#4a3f6b', '#6b5bb5', '#322a4d')
   }),
   card({
@@ -109,10 +109,10 @@ const TROOPS = [
     model: humanoid('#3b6f8a', '#e8b88a', { helmet: '#6d8aa3', weapon: '#b8bcc8', shield: '#2c5a7a' })
   }),
   card({
-    id: 'demolishers', name: 'Подрывники', rarity: 'common', type: 'troop', cost: 2, count: 2,
+    id: 'demolishers', name: 'Подрывники', rarity: 'common', type: 'troop', cost: 3, count: 2,
     desc: 'Бегут к зданиям и взрываются вместе с бочками пороха.',
-    hp: 260, damage: 230, hitSpeed: 1.0, range: 0.9, speed: 1.8, targets: 'ground', buildingOnly: true,
-    abilities: [{ type: 'deathDamage', damage: 320, radius: 1.8 }],
+    hp: 260, damage: 180, hitSpeed: 1.0, range: 0.9, speed: 1.8, targets: 'ground', buildingOnly: true,
+    abilities: [{ type: 'deathDamage', damage: 250, radius: 1.8 }],
     model: (() => {
       const m = smallHumanoid('#6b3a2b', '#e8b88a', {});
       m.parts.push(P('cylinder', [-0.3, 0.55, -0.15], [0.16, 0.3, 0.16], '#8a3b2b', { rot: [0.2, 0, 0.2] }));
@@ -126,21 +126,21 @@ const TROOPS = [
   card({
     id: 'fire_spirit', name: 'Огненный дух', rarity: 'common', type: 'troop', cost: 1,
     desc: 'Бросается во врага и взрывается, нанося урон по площади.',
-    hp: 150, damage: 240, hitSpeed: 1.0, range: 0.9, speed: 1.9, targets: 'both', splash: 1.7,
-    abilities: [{ type: 'deathDamage', damage: 120, radius: 1.7 }],
+    hp: 110, damage: 52, hitSpeed: 1.0, range: 0.7, speed: 1.6, targets: 'both', splash: 1.4,
+    abilities: [{ type: 'deathDamage', damage: 90, radius: 1.7 }],
     model: spirit('#ff8b3c', '#ffd08a')
   }),
   card({
     id: 'ice_spirit', name: 'Ледяной дух', rarity: 'common', type: 'troop', cost: 1,
     desc: 'Замораживает врагов при прыжке.',
-    hp: 150, damage: 95, hitSpeed: 1.0, range: 0.9, speed: 1.9, targets: 'both', splash: 1.7,
-    abilities: [{ type: 'freezeHit', duration: 1.2 }],
+    hp: 110, damage: 50, hitSpeed: 1.0, range: 0.7, speed: 1.6, targets: 'both', splash: 1.4,
+    abilities: [{ type: 'freezeHit', duration: 1.0 }],
     model: spirit('#6bc8ff', '#c8ecff')
   }),
   card({
     id: 'spark_spirit', name: 'Искрящийся дух', rarity: 'common', type: 'troop', cost: 1,
     desc: 'Оглушает цель разрядом тока.',
-    hp: 150, damage: 120, hitSpeed: 1.0, range: 1.0, speed: 1.9, targets: 'both',
+    hp: 150, damage: 80, hitSpeed: 1.0, range: 1.0, speed: 1.7, targets: 'both',
     abilities: [{ type: 'stunHit', duration: 0.6 }],
     model: spirit('#ffe066', '#fff2b0')
   }),
@@ -249,7 +249,7 @@ const TROOPS = [
   card({
     id: 'battle_ram', name: 'Таран', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Два варвара несут таран прямо в здание, а затем бьют в ближнем бою.',
-    hp: 1150, damage: 300, hitSpeed: 1.4, range: 1.0, speed: 1.6, targets: 'ground', buildingOnly: true,
+    hp: 1150, damage: 270, hitSpeed: 1.4, range: 1.0, speed: 1.6, targets: 'ground', buildingOnly: true,
     abilities: [{ type: 'charge', multiplier: 2.0, windup: 2.5 }, { type: 'deathDamage', damage: 120, radius: 1.4 }],
     model: (() => {
       const m = humanoid('#6b422b', '#e8b88a', { helmet: false });
@@ -456,7 +456,7 @@ const TROOPS = [
   card({
     id: 'ghost_knight', name: 'Призрачный рыцарь', rarity: 'legendary', type: 'troop', cost: 3,
     desc: 'Невидим, пока не ударит. Атакует врагов вокруг.',
-    hp: 1150, damage: 265, hitSpeed: 1.3, range: 1.0, speed: 1.5, targets: 'ground', splash: 1.5,
+    hp: 1150, damage: 240, hitSpeed: 1.3, range: 1.0, speed: 1.5, targets: 'ground', splash: 1.5,
     model: (() => {
       const m = humanoid('#4a5a8a', '#8a9ad8', { helmet: '#2c3a6b', weapon: '#9adcff', plume: '#9adcff' });
       m.parts.push(P('torus', [0, 1.05, 0], [0.75, 0.75, 0.75], '#9adcff', { emissive: '#4a7ac8', rot: [1.57, 0, 0] }));
@@ -519,6 +519,79 @@ const TROOPS = [
       m.parts.push(P('cone', [0, 2.0, 0], [0.55, 0.8, 0.55], '#1c4a2b'));
       m.parts.push(P('cylinder', [0.6, 1.25, 0.1], [0.06, 1.2, 0.06], '#6b4a2b', { rot: [0.15, 0, -0.15] }));
       m.parts.push(P('sphere', [0.68, 2.1, 0.12], [0.2, 0.2, 0.2], '#7dff9e', { emissive: '#2e8b57' }));
+      return m;
+    })()
+  }),
+  // ————— новые карты: большая волна —————
+  card({
+    id: 'frost_titan', name: 'Ледяной титан', rarity: 'epic', type: 'troop', cost: 5,
+    desc: 'Колосс из вечного льда. Замораживает врагов каждым ударом.',
+    hp: 3600, damage: 190, hitSpeed: 1.8, range: 1.2, speed: 0.7, targets: 'ground',
+    abilities: [{ type: 'freezeHit', duration: 1.5 }],
+    model: (() => {
+      const m = golem('#9adcff', '#4a8ac8', '#c8ecff');
+      m.parts.push(P('cone', [-0.55, 1.9, 0], [0.3, 0.8, 0.3], '#c8ecff', { emissive: '#6bc8ff' }));
+      m.parts.push(P('cone', [0.55, 1.9, 0], [0.3, 0.8, 0.3], '#c8ecff', { emissive: '#6bc8ff' }));
+      return m;
+    })()
+  }),
+  card({
+    id: 'thunder_dragon', name: 'Громовой дракон', rarity: 'legendary', type: 'troop', cost: 6,
+    desc: 'Дракон грома. Может нанести сокрушительный критический удар.',
+    hp: 2400, damage: 260, hitSpeed: 1.5, range: 2.8, speed: 1.4, targets: 'both', flying: true,
+    abilities: [{ type: 'crit', chance: 0.25, multiplier: 2 }],
+    model: dragon('#3a5fC2', '#ffe07a', '#243a8a')
+  }),
+  card({
+    id: 'blood_knight', name: 'Рыцарь крови', rarity: 'epic', type: 'troop', cost: 4,
+    desc: 'Тёмный воин с безумной силой удара. Криты сыпятся часто.',
+    hp: 1800, damage: 190, hitSpeed: 1.2, range: 1.0, speed: 1.15, targets: 'ground',
+    abilities: [{ type: 'crit', chance: 0.2, multiplier: 2.2 }],
+    model: humanoid('#8a1f2e', '#d8a88a', { helmet: '#2c1018', weapon: '#e85d5d', plume: '#e85d5d' })
+  }),
+  card({
+    id: 'frost_archer', name: 'Ледяная лучница', rarity: 'rare', type: 'troop', cost: 3,
+    desc: 'Стреляет ледяными стрелами, замораживая цель.',
+    hp: 420, damage: 160, hitSpeed: 1.1, range: 4.5, speed: 1.05, targets: 'both',
+    abilities: [{ type: 'freezeHit', duration: 0.8 }],
+    model: (() => {
+      const m = humanoid('#5b8fd6', '#f0c8a0', { helmet: '#9adcff', plume: '#c8ecff' });
+      m.parts.push(...bowArm('#6bc8ff'));
+      return m;
+    })()
+  }),
+  card({
+    id: 'shield_maiden', name: 'Дева щита', rarity: 'rare', type: 'troop', cost: 3,
+    desc: 'Воительница с магическим щитом, который поглощает урон.',
+    hp: 900, damage: 170, hitSpeed: 1.3, range: 1.0, speed: 1.05, targets: 'ground',
+    abilities: [{ type: 'shield', hp: 550 }],
+    model: humanoid('#c2703c', '#f0c8a0', { helmet: '#e8b88a', shield: '#ffd76a', weapon: '#c8ccd8' })
+  }),
+  card({
+    id: 'griffin', name: 'Грифон', rarity: 'epic', type: 'troop', cost: 4,
+    desc: 'Крылатый хищник. Разгоняется и врезается в цель.',
+    hp: 1300, damage: 175, hitSpeed: 1.3, range: 1.0, speed: 1.9, targets: 'ground', flying: true,
+    abilities: [{ type: 'charge', multiplier: 1.8, windup: 2 }],
+    model: winged('#c49a6c', '#e8d8b8', '#8a5a3b')
+  }),
+  card({
+    id: 'light_priest', name: 'Жрец света', rarity: 'rare', type: 'troop', cost: 3,
+    desc: 'Исцеляет всех союзников вокруг сияющей аурой.',
+    hp: 650, damage: 95, hitSpeed: 1.4, range: 3.8, speed: 1.0, targets: 'both',
+    abilities: [{ type: 'healAura', hps: 200, radius: 3.2 }],
+    model: humanoid('#e8e0c8', '#f0c8a0', { helmet: '#ffd76a', plume: '#fff2c8', weapon: '#ffd76a' })
+  }),
+  card({
+    id: 'thorn_golem', name: 'Колючий голем', rarity: 'rare', type: 'troop', cost: 4,
+    desc: 'Каменный великан, который притягивает врагов и бьёт их щипами.',
+    hp: 2800, damage: 160, hitSpeed: 1.9, range: 1.0, speed: 0.9, targets: 'ground',
+    abilities: [{ type: 'taunt', radius: 3.2 }],
+    model: (() => {
+      const m = golem('#6b7a55', '#4a5a38', '#a8d878');
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        m.parts.push(P('cone', [Math.cos(a) * 0.55, 1.15 + (i % 2) * 0.35, Math.sin(a) * 0.4], [0.14, 0.5, 0.14], '#8ac85a', { rot: [0.6, a, 0] }));
+      }
       return m;
     })()
   })
@@ -657,6 +730,32 @@ const SPELLS = [
         P('cone', [0, 2.15, 0], [0.28, 0.75, 0.28], '#ffffff', { emissive: '#c8ecff' })
       ]
     }
+  }),
+  card({
+    id: 'meteor_strike', name: 'Метеорит', rarity: 'epic', type: 'spell', cost: 5,
+    desc: 'Небесный камень обрушивается на площадь и выжигает всё живое.',
+    spell: { radius: 2.2, damage: 420, effect: 'damage', targetsAir: true, targetsGround: true },
+    model: {
+      parts: [
+        P('sphere', [0, 1.3, 0], [0.62, 0.62, 0.62], '#ff8b3c', { emissive: '#ff6a1f' }),
+        P('cone', [-0.25, 0.85, 0], [0.2, 0.8, 0.2], '#ffd08a', { emissive: '#ff8b3c', rot: [0.45, 0, 0.3] }),
+        P('cone', [0.3, 0.9, 0.15], [0.18, 0.75, 0.18], '#ffd08a', { emissive: '#ff8b3c', rot: [0.4, 0, -0.35] }),
+        P('sphere', [0, 1.3, 0], [0.75, 0.75, 0.75], '#ff8b3c', { emissive: '#ff6a1f' })
+      ]
+    }
+  }),
+  card({
+    id: 'frost_nova', name: 'Ледяная нова', rarity: 'rare', type: 'spell', cost: 3,
+    desc: 'Взрыв холода: урон и заморозка всех врагов в большой области.',
+    spell: { radius: 3.0, damage: 90, effect: 'freeze', duration: 1.6, targetsAir: true, targetsGround: true },
+    model: {
+      parts: [
+        P('torus', [0, 0.95, 0], [1.15, 1.15, 1.15], '#9adcff', { emissive: '#6bc8ff', rot: [1.57, 0, 0] }),
+        P('sphere', [0, 1.0, 0], [0.42, 0.42, 0.42], '#c8ecff', { emissive: '#9adcff' }),
+        P('cone', [-0.7, 1.35, 0], [0.16, 0.6, 0.16], '#c8ecff', { emissive: '#9adcff', rot: [0, 0, 0.5] }),
+        P('cone', [0.7, 1.35, 0], [0.16, 0.6, 0.16], '#c8ecff', { emissive: '#9adcff', rot: [0, 0, -0.5] })
+      ]
+    }
   })
 ];
 
@@ -745,7 +844,7 @@ const BUILDINGS = [
 const HIDDEN = [
   card({
     id: 'golemites', name: 'Големыши', rarity: 'epic', type: 'troop', cost: 2, hidden: true, count: 1,
-    hp: 1350, damage: 145, hitSpeed: 1.3, range: 1.0, speed: 0.95, targets: 'ground',
+    hp: 1100, damage: 145, hitSpeed: 1.3, range: 1.0, speed: 0.95, targets: 'ground',
     abilities: [{ type: 'deathDamage', damage: 160, radius: 1.5 }],
     model: golem('#a8a8b8', '#7b7b8c', '#66e0ff')
   }),

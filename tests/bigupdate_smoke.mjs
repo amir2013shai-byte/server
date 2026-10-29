@@ -89,7 +89,7 @@ check('passReward выдаёт треки', passReward(5, 'free').chest === 'woo
 check('премиум стоит золото', PREMIUM_COST === 500);
 
 // ——— достижения ———
-check('18 достижений', ACHIEVEMENTS.length === 18);
+check('16 достижений', ACHIEVEMENTS.length === 16);
 check('у достижений условия и награды', ACHIEVEMENTS.every((a) => a.id && a.title && a.desc && a.gold > 0 && typeof a.check === 'function'));
 check('условие first_win срабатывает', ACHIEVEMENTS.find((a) => a.id === 'first_win').check({ wins: 1 }));
 check('statsFrom считает сводку', statsFrom({ wins: 5, campaignDone: { m01: 3, m02: 2 }, level: 3 }).campaignDone === 2);
@@ -111,6 +111,23 @@ check('экраны: кампания/турнир/кузница/2×2/войн�
 check('бой-пропуск в меню (m-pass)', uiSrc.includes('m-pass') && uiSrc.includes('pass-hero'));
 check('награды: опыт и достижения в конце боя', uiSrc.includes('_grantXp') && uiSrc.includes('_checkAchievements'));
 check('босс и командиры в боевом цикле', uiSrc.includes('_bossCtl') && uiSrc.includes('_commanders'));
+
+// ——— баланс, новые карты, погода, музыка, драфт ———
+import { ALL_CARDS as ALL2 } from '../src/data/cards.js';
+import { cardBalance } from '../src/data/balance.js';
+
+check('все карты сбалансированы (0 дисбалансных)', ALL2.every((c) => cardBalance(c).ok));
+const NEW_IDS = ['frost_titan', 'thunder_dragon', 'blood_knight', 'frost_archer', 'shield_maiden', 'griffin', 'light_priest', 'thorn_golem', 'meteor_strike', 'frost_nova'];
+check('10 новых карт в базе', NEW_IDS.every((id) => ALL2.find((c) => c.id === id)));
+check('новые карты с моделями', NEW_IDS.every((id) => {
+  const c = ALL2.find((x) => x.id === id);
+  return c.model && c.model.parts && c.model.parts.length > 0;
+}));
+const bvSrc = readFileSync(new URL('../src/render/battleView.js', import.meta.url), 'utf8');
+check('погода в бою (rain/snow/night/sunset)', ['_drawWeather', '_stepWeather', 'rain', 'snow', 'night', 'sunset'].every((s) => bvSrc.includes(s)));
+check('музыка и звуки событий', uiSrc.includes('class Music') && uiSrc.includes('music.setMode') && uiSrc.includes('towerDown'));
+check('режим драфта', uiSrc.includes('showDraft') && uiSrc.includes('m-draft') && uiSrc.includes('_draftDeck'));
+check('режим «Экзамен» удалён из файлов', !uiSrc.includes('showExam'));
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);

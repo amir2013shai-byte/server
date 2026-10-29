@@ -4,9 +4,6 @@ import { ALL_CARDS, withCustom, getCard } from '../src/data/cards.js';
 import { Battle, MATCH_TIME, ARENA } from '../src/game/engine.js';
 import { BattleAI } from '../src/game/ai.js';
 import { ARENAS, arenaFor, nextArena } from '../src/data/arenas.js';
-import { runCpp } from '../src/code/cppRun.js';
-import { EASY_TASKS } from '../src/code/cppTasks.js';
-import { SUBJECTS, QUESTIONS } from '../src/code/quiz.js';
 import { MISSIONS, BOSSES } from '../src/data/campaign.js';
 import { PASS_REWARDS } from '../src/data/pass.js';
 import { ACHIEVEMENTS } from '../src/data/achievements.js';
@@ -257,9 +254,8 @@ for (const d of [0, 2, 5]) {
 const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8');
 check('уровень карты виден на картах (card-level)', uiSrc.includes('card-level'));
 check('надпись арены над картой боя (battle-arena)', uiSrc.includes('battle-arena'));
-check('особый режим «Экзамен» в меню (m-exam)', uiSrc.includes('m-exam') && uiSrc.includes('showExam'));
-check('код и вопросы ЕГЭ подключены', typeof runCpp === 'function' && EASY_TASKS.length >= 8 && SUBJECTS.length === 12 && Object.keys(QUESTIONS).length === 12);
-check('крупное обновление подключено', MISSIONS.length === 20 && Object.keys(BOSSES).length === 6 && PASS_REWARDS.length === 20 && ACHIEVEMENTS.length === 18);
+check('особый режим «Экзамен» убран', !uiSrc.includes('showExam') && !uiSrc.includes('m-exam'));
+check('крупное обновление подключено', MISSIONS.length === 20 && Object.keys(BOSSES).length === 6 && PASS_REWARDS.length === 20 && ACHIEVEMENTS.length === 16);
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);
