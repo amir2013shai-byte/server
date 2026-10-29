@@ -225,18 +225,18 @@ const kingSolo2 = b13.towers.find((t) => t.team === 'ai' && t.kind === 'king');
 check('стальной голем в одиночку не сносит главную вышку', kingSolo2.alive);
 
 // ——— арены и умнеющий с ареной ИИ ———
-check('арен 6 и у каждой своя тема и сложность', ARENAS.length === 6 &&
-  ARENAS.every((a) => a.colors && a.colors.river && a.colors.fieldA && a.difficulty >= 0 && a.difficulty <= 5));
+check('арен 10 и у каждой своя тема и сложность', ARENAS.length === 10 &&
+  ARENAS.every((a) => a.colors && a.colors.river && a.colors.fieldA && a.difficulty >= 0 && a.difficulty <= 9));
 check('пороги арен по возрастанию', ARENAS.every((a, i) => i === 0 || a.min > ARENAS[i - 1].min));
 check('арена растёт с кубками', arenaFor(0).id === ARENAS[0].id && arenaFor(400).id === ARENAS[1].id &&
   arenaFor(2799).id !== ARENAS[5].id && arenaFor(2800).id === ARENAS[5].id);
 check('nextArena указывает вперёд', nextArena(0) && nextArena(0).min === 400 && nextArena(99999) === null);
 
 const fakeB = { finished: true, units: [], towers: [], teams: { ai: { hand: [], elixir: 0 }, player: { hand: [], elixir: 0 } }, card: () => null, deploy: () => null, canPlaceAt: () => true };
-check('ИИ принимает сложность и держит её в 0..5',
-  new BattleAI(fakeB, 'ai', 5).d === 5 && new BattleAI(fakeB, 'ai', 99).d === 5 && new BattleAI(fakeB, 'ai').d === 0);
+check('ИИ принимает сложность и держит её в 0..9',
+  new BattleAI(fakeB, 'ai', 9).d === 9 && new BattleAI(fakeB, 'ai', 99).d === 9 && new BattleAI(fakeB, 'ai').d === 0);
 const tLo = new BattleAI(fakeB, 'ai', 0).thinkIn;
-const tHi = new BattleAI(fakeB, 'ai', 5).thinkIn;
+const tHi = new BattleAI(fakeB, 'ai', 9).thinkIn;
 check(`ИИ высокой арены думает быстрее (низ ${tLo.toFixed(2)}с ≥ 1.29, высокий ${tHi.toFixed(2)}с ≤ 1.41)`,
   tLo >= 1.29 && tHi <= 1.41 && tHi < 1.5);
 

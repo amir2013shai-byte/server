@@ -295,7 +295,7 @@ step('2D-фолбэк: клик по своей половине высажив�
 const { encodeCard, decodeCard } = await import('../src/share.js');
 const { addCardCopies, canUpgrade, cardLevel } = await import('../src/progress.js');
 const { accounts, ADMIN_NAME } = await import('../src/accounts.js');
-const ADMIN_PASSWORD = 'Kl3sh-Royal-2026!'; // пароль админа для тестов
+const ADMIN_PASSWORD = 'Kl3sh-R0y@l-X9!2026'; // пароль админа для тестов
 
 step('баланс: огромный HP делает карту дисбалансной', () => {
   const card = { cost: 3, type: 'troop', hp: 100, damage: 50, hitSpeed: 1, range: 1, speed: 1, count: 1, abilities: [] };

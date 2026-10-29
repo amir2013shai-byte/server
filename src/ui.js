@@ -8,7 +8,9 @@ import {
   LEVEL_MAX, levelMultiplier, upgradeCost, LEAGUES, leagueFor, nextLeague,
   currentSeasonId, seasonDaysLeft, seasonReward,
   normalizeProgress, cardLevel, scaleCard, rollChest, openChest,
-  copiesNeeded, cardCopiesOf, addCardCopies, canUpgrade, applyUpgrade
+  copiesNeeded, cardCopiesOf, addCardCopies, unlockCard, applyUnlocksByTrophies,
+  HERO_FRAGMENTS_FOR_UNLOCK, addHeroFragments, unlockHero, isHeroUnlocked, unlockStarterCards,
+  canUpgrade, applyUpgrade
 } from './progress.js';
 import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeReplay, REPLAY_LIMIT } from './replay.js';
 import { ARENAS, arenaFor, nextArena } from './data/arenas.js';
@@ -189,6 +191,7 @@ export class App {
     this.allCards = withCustom([...accounts.globalCards(), ...this.customCards]);
     this.balanceParams = accounts.getBalance();
     this.progress = accounts.ensureGuest(this.deck, this.customCards);
+    unlockStarterCards(this.progress);
     this.replays = this._loadReplays();
     this.showMenu();
     // импорт карты по ссылке #card=BC1...
@@ -623,6 +626,7 @@ export class App {
     const doneBtn = ov.querySelector('#chest-done');
     let opened = false;
     let idx = 0;
+    const newlyUnlocked = [];
 
     const revealNext = () => {
       if (idx >= rew.items.length) {
@@ -666,7 +670,17 @@ export class App {
       // начисляем лут
       p.gold += rew.gold;
       for (const item of rew.items) {
-        if (item.kind === 'cards') addCardCopies(p, item.cardId, item.count);
+        if (item.kind === 'cards') {
+          const c = this.cards().find((x) => x.id === item.cardId);
+          if (c && c.hero) {
+            const got = addHeroFragments(p, item.cardId, item.count);
+            const need = c.fragmentCost || HERO_FRAGMENTS_FOR_UNLOCK;
+            if (got >= need && unlockHero(p, item.cardId)) newlyUnlocked.push(item.cardId + '|hero');
+          } else {
+            addCardCopies(p, item.cardId, item.count);
+            if (unlockCard(p, item.cardId)) newlyUnlocked.push(item.cardId);
+          }
+        }
       }
       this._persist();
       setTimeout(revealNext, 450);
@@ -675,6 +689,15 @@ export class App {
     stage.onclick = open;
     doneBtn.onclick = () => {
       ov.remove();
+      if (newlyUnlocked.length) {
+        const names = newlyUnlocked.map((id) => {
+          const isHero = id.endsWith('|hero');
+          const realId = isHero ? id.slice(0, -5) : id;
+          const c = this.cards().find((x) => x.id === realId);
+          return (isHero ? '🦸 ' : '') + (c ? c.name : realId) + (isHero ? ' (герой)' : '');
+        }).join(', ');
+        this.toast('🆕 Карты открыты: ' + names);
+      }
       if (onClose) onClose();
     };
     document.body.appendChild(ov);
@@ -913,7 +936,7 @@ export class App {
             <div class="row wrap">
               <button class="btn btn-chip" id="m-sudden">💀 Внезапная смерть</button>
               <button class="btn btn-chip" id="m-x2">⚡ Двойной эликсир</button>
-              <button class="btn btn-chip" id="m-draft">🃏 Черновик</button>
+              <button class="btn btn-chip" id="m-draft">🎲 Драфт</button>
               <button class="btn btn-chip" id="m-tournament">🏆 Турнир</button>
             </div>
             <div class="muted mt8" style="font-size:11px">
@@ -2174,7 +2197,18 @@ export class App {
               <button class="btn btn-ghost" id="g-publish">📢 Опубликовать мою</button>
             </div>
           </div>
-          <button class="btn btn-primary btn-block btn-big" id="p-save" style="margin:10px 0 30px">💾 Сохранить баланс</button>
+          <button class="btn btn-primary btn-block btn-big" id="p-save" style="margin:10px 0 10px">💾 Сохранить баланс</button>
+          <div class="form-section">
+            <h3>🎁 Выдать себе ресурсы (только админ)</h3>
+            <div class="muted mb12">Для тестирования и быстрой прокачки своего аккаунта.</div>
+            <div class="row wrap">
+              <button class="btn btn-primary" id="a-gold">💰 +5000 золота</button>
+              <button class="btn btn-primary" id="a-cards">🃏 Открыть все карты</button>
+              <button class="btn btn-primary" id="a-heroes">🦸 Все герои</button>
+              <button class="btn btn-primary" id="a-pass">🎖 max уровень пропуска</button>
+              <button class="btn btn-primary" id="a-chests">📦 Все сундуки</button>
+            </div>
+          </div>
         </div>
       </div>
     `);
@@ -2264,6 +2298,14 @@ export class App {
         this.showAdmin();
       }
     };
+
+    // ——— выдача ресурсов админу (для тестирования) ———
+    const give = (id, fn) => { const el = this.root.querySelector('#' + id); if (el) el.onclick = () => { this.sfx.play('ui'); fn(); this.toast('Готово'); this.showAdmin(); }; };
+    give('a-gold', () => { this.progress.gold += 5000; });
+    give('a-cards', () => { let n = 0; for (const c of this.allCards) { if (!c.hidden && unlockCard(this.progress, c.id)) n++; } this.toast('🃏 Карт открыто: ' + n); });
+    give('a-heroes', () => { let n = 0; for (const c of this.allCards) { if (c.hero && unlockHero(this.progress, c.id)) n++; } this.toast('🦸 Героев: ' + n); });
+    give('a-pass', () => { this.progress.pass.xp = PASS_TIERS * PASS_XP_PER_TIER; this.toast('🎖 Пропуск: макс. уровень'); });
+    give('a-chests', () => { while (this.progress.chests.length < 4) this.progress.chests.push(chestByType('royal')); this.toast('📦 Сундуки заполнены'); });
   }
 
   // ————— редактор рисунка карты —————
@@ -2481,6 +2523,7 @@ export class App {
             <div class="elixir-bar"><div class="elixir-fill" id="b-elixir"></div></div>
             <div class="elixir-num" id="b-elixir-num">5</div>
             <div class="elixir-x2" id="b-x2" style="display:none">×2</div>
+            ${this._heroCardId ? `<button class="btn code-fab" id="b-hero" title="Активная абилка героя (1 раз за бой)">🦸</button>` : ''}
           </div>
           <div class="hand-row" id="b-hand"></div>
           <div class="battle-hint">${this.battleMode === 'friendly' ? '🤝 Дружеский бой — можно любые карты. ' : ''}Перетащите карту на арену: войска — на свою половину, заклинания — куда угодно</div>
@@ -2507,6 +2550,15 @@ export class App {
       this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai', arena.difficulty);
       this._bossCtl = null;
       this._commanders = null;
+      this._heroAbilityUsed = false;
+      this._heroCardId = null;
+      if (!online && mode !== 'replay') {
+        const hc = playerDeck.find((id) => {
+          const c = cardsById.get(id);
+          return c && c.hero && isHeroUnlocked(this.progress, id);
+        }) || null;
+        this._heroCardId = hc;
+      }
       if (bossDef) {
         this._bossCtl = new BossController(this.battle, 'ai', bossDef);
         const king = this.battle.towers.find((t) => t.team === 'ai' && t.kind === 'king');
@@ -2597,6 +2649,8 @@ export class App {
       storage.setSettings(this.settings);
       this.root.querySelector('#b-mute').textContent = this.sfx.enabled ? '🔊' : '🔇';
     };
+    const hb = this.root.querySelector('#b-hero');
+    if (hb) hb.onclick = () => { this.sfx.play('ui'); this._activateHeroAbility(); };
 
     this.selectedCard = null;
     this._renderHand();
@@ -3186,6 +3240,50 @@ export class App {
     this.showPass();
   }
 
+  // ——— активная абилка героя (1 раз за бой) ———
+
+  _activateHeroAbility() {
+    const b = this.battle;
+    if (!b || b.finished || this._heroAbilityUsed || !this._heroCardId) return;
+    const heroCard = getCard(this._heroCardId);
+    if (!heroCard) return;
+    const myUnits = b.units.filter((u) => u.team === 'player' && u.alive);
+    const hero = myUnits.find((u) => (u.card && u.card.id) === this._heroCardId);
+    if (!hero) { this.toast('Сначала высадите героя на арену!'); return; }
+    this._heroAbilityUsed = true;
+    const btn = this.root.querySelector('#b-hero');
+    if (btn) { btn.textContent = '🦸 использовано'; btn.disabled = true; btn.style.opacity = '0.5'; }
+    const dmg = Math.round((heroCard.damage || 0));
+    if (this._heroCardId === 'hero_paladin') {
+      for (const u of myUnits) {
+        const add = Math.round((u.card.hp || 0) * 0.6);
+        u.shieldHp = (u.shieldHp || 0) + add;
+        u.shieldMax = Math.max(u.shieldMax || 0, u.shieldHp);
+      }
+      b.emit({ type: 'hero', id: hero.id, kind: 'shield' });
+      this.toast('🛡 Паладин: щит всем войскам (+60% HP)!');
+    } else if (this._heroCardId === 'hero_assassin') {
+      const foes = b.units.filter((u) => u.team === 'ai' && u.alive);
+      if (foes.length) {
+        const target = foes.reduce((s, u) => (u.hp > s.hp ? u : s), foes[0]);
+        b._damage(target, dmg * 3, { source: hero.id, team: 'player' });
+        hero.x = target.x; hero.y = target.y + 1;
+      }
+      this.toast('⚔ Тень: рывок и удар в спину (×3 урона)!');
+    } else if (this._heroCardId === 'hero_mage') {
+      const foes = b.units.filter((u) => u.team === 'ai' && u.alive);
+      let hit = 0;
+      for (const f of foes) {
+        if (Math.hypot(f.x - hero.x, f.y - hero.y) <= 4.5) {
+          b._damage(f, Math.round(dmg * 1.3), { source: hero.id, team: 'player' });
+          hit++;
+        }
+      }
+      this.toast('🔥 Архимаг: взрыв по ' + hit + ' цели(ям)!');
+    }
+    this.sfx.play('spell');
+  }
+
   _renderHand() {
     const handEl = this.root.querySelector('#b-hand');
     if (!handEl || !this.battle) return;
@@ -3477,6 +3575,13 @@ export class App {
     const stats = storage.addBattleResult(res.winner === 'player');
     const ranked = this.battleMode === 'normal';
     const u = accounts.addBattle(res.winner === 'player', ranked, res.winner === 'draw');
+    // открыть карты, доступные по текущему количеству кубков
+    const meta = this.allCards.filter((c) => !c.hero).map((c) => ({ id: c.id, unlockTrophies: c.unlockTrophies || 0 }));
+    const freshly = applyUnlocksByTrophies(this.progress, meta, u.trophies || 0);
+    if (freshly.length) {
+      const names = freshly.map((id) => { const c = this.cards().find((x) => x.id === id); return c ? c.name : id; }).join(', ');
+      this.toast('🆕 Карты открыты: ' + names);
+    }
     this.sfx.play(res.winner === 'player' ? 'win' : res.winner === 'draw' ? 'ui' : 'lose');
 
     // ——— награды: золото, сундуки, клан, реплей ———

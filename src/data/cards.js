@@ -36,12 +36,14 @@ const TROOPS = [
     id: 'knight', name: 'Рыцарь', rarity: 'common', type: 'troop', cost: 3,
     desc: 'Бронированный боец ближнего боя. Надёжный защитник короны.',
     hp: 1450, damage: 205, hitSpeed: 1.2, range: 0.9, speed: 1.05, targets: 'ground',
+    abilities: [{"type": "shield", "hp": 250}],
     model: humanoid('#3b6fd4', '#e8b88a', { helmet: '#9aa3b5', weapon: '#c8ccd8', shield: '#2c4a9c' })
   }),
   card({
     id: 'archers', name: 'Лучницы', rarity: 'common', type: 'troop', cost: 3, count: 2,
     desc: 'Две меткие лучницы. Бьют и по земле, и по воздуху.',
     hp: 280, damage: 95, hitSpeed: 1.1, range: 5.0, speed: 1.05, targets: 'both',
+    abilities: [{"type": "crit", "chance": 0.15, "multiplier": 1.8}],
     model: (() => {
       const m = humanoid('#2e8b57', '#f0c8a0', { helmet: '#c23b3b', plume: '#e85d5d' });
       m.parts.push(...bowArm());
@@ -51,37 +53,43 @@ const TROOPS = [
   card({
     id: 'skeletons', name: 'Скелеты', rarity: 'common', type: 'troop', cost: 1, count: 3,
     desc: 'Отряд слабых, но очень быстрых костяных бойцов.',
-    hp: 95, damage: 85, hitSpeed: 1.0, range: 0.7, speed: 1.25, targets: 'ground',
+    hp: 72, damage: 65, hitSpeed: 1.0, range: 0.7, speed: 1.25, targets: 'ground',
+    abilities: [{"type": "dodge", "chance": 0.2}],
     model: skeleton({ weapon: '#b8b09a' })
   }),
   card({
     id: 'goblins', name: 'Гоблины', rarity: 'common', type: 'troop', cost: 2, count: 3,
     desc: 'Быстрые зеленокожие разбойники с кинжалами.',
     hp: 210, damage: 130, hitSpeed: 1.0, range: 0.7, speed: 1.6, targets: 'ground',
+    abilities: [{"type": "lifesteal", "percent": 0.15}],
     model: smallHumanoid('#7a4a2b', '#7dbb5a', { ears: true, weapon: '#c8ccd8' })
   }),
   card({
     id: 'spear_goblins', name: 'Копейщики', rarity: 'common', type: 'troop', cost: 2, count: 3,
     desc: 'Метают копья издалека. Бьют и по воздуху.',
     hp: 135, damage: 75, hitSpeed: 1.4, range: 4.2, speed: 1.6, targets: 'both',
+    abilities: [{"type": "slowHit", "duration": 1.0, "factor": 0.7}],
     model: smallHumanoid('#4a7d3a', '#8fcc6a', { ears: true, weapon: '#8a5a2b' })
   }),
   card({
     id: 'minions', name: 'Миньоны', rarity: 'common', type: 'troop', cost: 3, count: 3,
     desc: 'Летающие твари, накидывающиеся на врага с воздуха.',
     hp: 220, damage: 110, hitSpeed: 1.0, range: 1.6, speed: 1.35, targets: 'both', flying: true,
+    abilities: [{"type": "dodge", "chance": 0.15}],
     model: winged('#6d5bb5', '#9b7ee8', '#4c3d85')
   }),
   card({
     id: 'bats', name: 'Летучие мыши', rarity: 'common', type: 'troop', cost: 1, count: 3,
     desc: 'Стая быстрых летучих мышей. Опасны в большом количестве.',
-    hp: 55, damage: 52, hitSpeed: 1.0, range: 0.8, speed: 1.4, targets: 'both', flying: true,
+    hp: 26, damage: 25, hitSpeed: 1.0, range: 0.8, speed: 1.4, targets: 'both', flying: true,
+    abilities: [{"type": "lifesteal", "percent": 0.2}],
     model: winged('#4a3f6b', '#6b5bb5', '#322a4d')
   }),
   card({
     id: 'bomber', name: 'Бомбардир', rarity: 'common', type: 'troop', cost: 2,
     desc: 'Мечет бомбы по наземным целям с расстояния, нанося урон по площади.',
     hp: 345, damage: 175, hitSpeed: 1.9, range: 4.5, speed: 1.0, targets: 'ground', splash: 1.6,
+    abilities: [{"type": "knockback", "force": 1.5}],
     model: (() => {
       const m = smallHumanoid('#8a3b2b', '#e8b88a', { hat: '#3b3b44', weapon: '#5b5b66' });
       m.parts.push(P('sphere', [0.42, 0.85, 0.18], [0.16, 0.16, 0.16], '#2c2c34'));
@@ -92,6 +100,7 @@ const TROOPS = [
     id: 'barbarians', name: 'Варвары', rarity: 'common', type: 'troop', cost: 5, count: 4,
     desc: 'Четверо свирепых воинов с мечами. Грозная сила в ближнем бою.',
     hp: 650, damage: 185, hitSpeed: 1.3, range: 0.8, speed: 1.05, targets: 'ground',
+    abilities: [{"type": "rageOnDeploy", "duration": 3}],
     model: humanoid('#a34a2b', '#e8b88a', { helmet: '#c8b89a', weapon: '#c8ccd8' })
   }),
   card({
@@ -154,9 +163,15 @@ const TROOPS = [
 
   // — редкие войска —
   card({
-    id: 'valkyrie', name: 'Валькирия', rarity: 'rare', type: 'troop', cost: 4,
+    id: 'valkyrie', name: 'Валькирия', rarity: 'rare',
+    unlockTrophies: 1400,
+    unlockTrophies: 1400,
+    unlockTrophies: 900,
+    unlockTrophies: 900,
+    unlockTrophies: 1400, type: 'troop', cost: 4,
     desc: 'Кружит топором, срубая всех врагов вокруг себя.',
     hp: 1750, damage: 245, hitSpeed: 1.5, range: 1.0, speed: 1.05, targets: 'ground', splash: 1.7,
+    abilities: [{"type": "knockback", "force": 1.8}],
     model: (() => {
       const m = humanoid('#c2532b', '#f0c8a0', { helmet: '#c23b3b', plume: '#e85d5d', legs: '#5b3a2b' });
       m.parts.push(P('box', [0.55, 1.0, 0.1], [0.1, 0.55, 0.14], '#c8ccd8', { rot: [0.4, 0, -0.3] }));
@@ -168,6 +183,7 @@ const TROOPS = [
     id: 'musketeer', name: 'Мушкетёр', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Дальнобойный стрелок с мушкетоном. Сбивает воздушные цели.',
     hp: 720, damage: 220, hitSpeed: 1.1, range: 6.0, speed: 1.0, targets: 'both',
+    abilities: [{"type": "crit", "chance": 0.2, "multiplier": 2}],
     model: (() => {
       const m = humanoid('#3b4a8a', '#f0c8a0', { helmet: '#2c3260', plume: '#e8c860' });
       m.parts.push(P('cylinder', [0.5, 1.05, 0.15], [0.06, 0.95, 0.06], '#4a4a55', { rot: [1.25, 0, -0.15] }));
@@ -178,6 +194,7 @@ const TROOPS = [
     id: 'giant', name: 'Гигант', rarity: 'rare', type: 'troop', cost: 5,
     desc: 'Огромный великан, который идёт только к зданиям.',
     hp: 3600, damage: 190, hitSpeed: 1.5, range: 1.2, speed: 0.75, targets: 'ground', buildingOnly: true,
+    abilities: [{"type": "taunt", "radius": 2.8}],
     model: (() => {
       const m = humanoid('#8a5a3b', '#e8b88a', { helmet: false, legs: '#5b3a2b' });
       // массивное тело
@@ -191,6 +208,7 @@ const TROOPS = [
     id: 'boar_rider', name: 'Всадник на вепре', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Стремительно мчится к вражеским зданиям верхом на кабане.',
     hp: 1250, damage: 270, hitSpeed: 1.6, range: 1.0, speed: 1.9, targets: 'ground', buildingOnly: true,
+    abilities: [{"type": "charge", "multiplier": 1.7, "windup": 2}],
     model: (() => {
       const m = beast('#8a5a3b', '#c49a6c', '#5b3a22');
       m.parts.push(P('sphere', [0, 1.35, -0.15], [0.22, 0.22, 0.22], '#e8b88a'));
@@ -203,12 +221,14 @@ const TROOPS = [
     id: 'titan', name: 'Титан', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Медленный, но чудовищно сильный воин в тяжёлой броне.',
     hp: 1900, damage: 320, hitSpeed: 1.6, range: 1.0, speed: 0.85, targets: 'ground',
+    abilities: [{"type": "thorns", "percent": 0.25}],
     model: humanoid('#5b5b66', '#b89a8a', { helmet: '#3b3b44', weapon: '#e0e4ec', legs: '#3b3b44' })
   }),
   card({
     id: 'wizard', name: 'Маг', rarity: 'rare', type: 'troop', cost: 5,
     desc: 'Швыряет огненные шары, сжигающие группы врагов.',
     hp: 620, damage: 245, hitSpeed: 1.7, range: 5.2, speed: 1.0, targets: 'both', splash: 1.7,
+    abilities: [{"type": "chain", "bounces": 2, "damage": 0.65}],
     model: (() => {
       const m = humanoid('#8a3b5b', '#e8b88a', { helmet: '#5b2b3b', plume: '#e85d5d' });
       m.parts.push(P('cone', [0, 1.85, 0], [0.42, 0.65, 0.42], '#5b2b3b'));
@@ -234,6 +254,7 @@ const TROOPS = [
     id: 'flying_machine', name: 'Ветролёт', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Летающая платформа с пушкой. Обстреливает всё вокруг.',
     hp: 750, damage: 165, hitSpeed: 0.9, range: 5.4, speed: 1.4, targets: 'both', flying: true,
+    abilities: [{"type": "dodge", "chance": 0.25}],
     model: {
       parts: [
         P('box', [0, 0.75, 0], [0.95, 0.22, 0.95], '#8a6b3b'),
@@ -280,7 +301,8 @@ const TROOPS = [
   card({
     id: 'berserk', name: 'Берсерк', rarity: 'rare', type: 'troop', cost: 3,
     desc: 'Яростный воин с двумя топорами. Быстро рубит врагов.',
-    hp: 950, damage: 170, hitSpeed: 0.75, range: 0.8, speed: 1.5, targets: 'ground',
+    hp: 815, damage: 146, hitSpeed: 0.75, range: 0.8, speed: 1.5, targets: 'ground',
+    abilities: [{"type": "crit", "chance": 0.3, "multiplier": 2.4}],
     model: (() => {
       const m = humanoid('#a32b2b', '#e8b88a', { helmet: false, legs: '#5b2b2b' });
       m.parts.push(P('box', [-0.55, 1.05, 0.15], [0.22, 0.22, 0.05], '#c8ccd8', { rot: [0, 0, 0.5] }));
@@ -292,12 +314,14 @@ const TROOPS = [
     id: 'dart_shooter', name: 'Метатель', rarity: 'rare', type: 'troop', cost: 3,
     desc: 'Очень быстрый стрелок из духовой трубки.',
     hp: 480, damage: 110, hitSpeed: 0.7, range: 5.2, speed: 1.6, targets: 'both',
+    abilities: [{"type": "slowHit", "duration": 0.8, "factor": 0.7}],
     model: smallHumanoid('#2e8b57', '#7dbb5a', { ears: true, hat: '#c23b3b', weapon: '#8a5a2b' })
   }),
   card({
     id: 'fire_sorcerer', name: 'Огненный заклинатель', rarity: 'rare', type: 'troop', cost: 4,
     desc: 'Метает пламя во врагов, поджигая площадь.',
     hp: 600, damage: 210, hitSpeed: 1.6, range: 4.8, speed: 1.0, targets: 'ground', splash: 1.8,
+    abilities: [{"type": "stunHit", "duration": 0.4}],
     model: (() => {
       const m = humanoid('#c2532b', '#e8b88a', { helmet: '#8a3b2b', plume: '#ffb03c' });
       m.parts.push(P('cone', [0, 1.85, 0], [0.4, 0.62, 0.4], '#8a3b2b'));
@@ -330,7 +354,11 @@ const TROOPS = [
 
   // — эпические войска —
   card({
-    id: 'witch', name: 'Ведьма', rarity: 'epic', type: 'troop', cost: 5,
+    id: 'witch', name: 'Ведьма', rarity: 'epic',
+    unlockTrophies: 2000,
+    unlockTrophies: 400,
+    unlockTrophies: 2000,
+    unlockTrophies: 2800, type: 'troop', cost: 5,
     desc: 'Поднимает скелетов и бьёт тёмной магией по площади.',
     hp: 820, damage: 155, hitSpeed: 1.2, range: 4.8, speed: 1.0, targets: 'both', splash: 1.4,
     abilities: [{ type: 'spawnTroops', cardId: 'skeletons', interval: 4.5, max: 3 }],
@@ -378,6 +406,7 @@ const TROOPS = [
     id: 'steel_golem', name: 'Стальной голем', rarity: 'epic', type: 'troop', cost: 7,
     desc: 'Железная машина смерти. Один удар — целая толпа.',
     hp: 3600, damage: 215, hitSpeed: 1.8, range: 1.1, speed: 0.75, targets: 'ground',
+    abilities: [{"type": "thorns", "percent": 0.3}],
     model: golem('#5b6d8a', '#3b4a5c', '#ff7a3c')
   }),
   card({
@@ -424,13 +453,15 @@ const TROOPS = [
   card({
     id: 'shadow_assassin', name: 'Теневой убийца', rarity: 'epic', type: 'troop', cost: 3,
     desc: 'Невидимый в тени, очень быстрый, бьёт в спину.',
-    hp: 720, damage: 215, hitSpeed: 0.9, range: 0.8, speed: 1.9, targets: 'ground',
+    hp: 619, damage: 185, hitSpeed: 0.9, range: 0.8, speed: 1.9, targets: 'ground',
+    abilities: [{"type": "dodge", "chance": 0.35}],
     model: humanoid('#2c2c38', '#5b5b6b', { helmet: '#14141c', weapon: '#8a5aff', legs: '#1c1c28' })
   }),
   card({
     id: 'bow_master', name: 'Мастер лука', rarity: 'epic', type: 'troop', cost: 4,
     desc: 'Бьёт с огромной дистанции. Незаменим в обороне.',
     hp: 540, damage: 240, hitSpeed: 1.7, range: 7.2, speed: 1.0, targets: 'both',
+    abilities: [{"type": "crit", "chance": 0.2, "multiplier": 1.9}],
     model: (() => {
       const m = humanoid('#2e5b4a', '#e8b88a', { helmet: '#1c3b2e', plume: '#7dff9e' });
       m.parts.push(...bowArm('#6b8a3b'));
@@ -454,9 +485,11 @@ const TROOPS = [
 
   // — легендарные войска —
   card({
-    id: 'ghost_knight', name: 'Призрачный рыцарь', rarity: 'legendary', type: 'troop', cost: 3,
+    id: 'ghost_knight', name: 'Призрачный рыцарь', rarity: 'legendary',
+    unlockTrophies: 3200, type: 'troop', cost: 3,
     desc: 'Невидим, пока не ударит. Атакует врагов вокруг.',
-    hp: 1150, damage: 240, hitSpeed: 1.3, range: 1.0, speed: 1.5, targets: 'ground', splash: 1.5,
+    hp: 986, damage: 206, hitSpeed: 1.3, range: 1.0, speed: 1.5, targets: 'ground', splash: 1.5,
+    abilities: [{"type": "lifesteal", "percent": 0.25}],
     model: (() => {
       const m = humanoid('#4a5a8a', '#8a9ad8', { helmet: '#2c3a6b', weapon: '#9adcff', plume: '#9adcff' });
       m.parts.push(P('torus', [0, 1.05, 0], [0.75, 0.75, 0.75], '#9adcff', { emissive: '#4a7ac8', rot: [1.57, 0, 0] }));
@@ -594,7 +627,30 @@ const TROOPS = [
       }
       return m;
     })()
-  })
+  }),
+
+  // ————— герои: открываются фрагментами, имеют активную абилку —————
+  card({
+    id: 'hero_paladin', name: 'Паладин', rarity: 'legendary', type: 'troop', cost: 5,
+    desc: 'Герой. Активная абилка: несокрушимый щит всем союзным войскам на 4 сек.',
+    hp: 2200, damage: 200, hitSpeed: 1.5, range: 1.2, speed: 1.0, targets: 'ground', hero: true, fragmentCost: 80, unlockTrophies: 3200,
+    abilities: [{ type: 'shield', hp: 900 }],
+    model: humanoid('#c2703c', '#f0c8a0', { helmet: '#ffd76a', shield: '#ffd76a', weapon: '#e85d5d', plume: '#ffd76a' })
+  }),
+  card({
+    id: 'hero_assassin', name: 'Тень', rarity: 'legendary', type: 'troop', cost: 4,
+    desc: 'Герой. Активная абилка: рывок к цели и мощный удар в спину.',
+    hp: 700, damage: 190, hitSpeed: 1.1, range: 1.0, speed: 1.9, targets: 'ground', hero: true, fragmentCost: 80, unlockTrophies: 3700,
+    abilities: [{ type: 'dodge', chance: 0.3 }, { type: 'crit', chance: 0.3, multiplier: 2.5 }],
+    model: humanoid('#2c2c4a', '#8a9ad8', { helmet: '#1a1a3a', weapon: '#9adcff', plume: '#4a7ac8' })
+  }),
+  card({
+    id: 'hero_mage', name: 'Архимаг', rarity: 'legendary', type: 'troop', cost: 6,
+    desc: 'Герой. Активная абилка: взрыв стихий наносит урон всем врагам в области.',
+    hp: 1300, damage: 180, hitSpeed: 1.4, range: 5.0, speed: 0.9, targets: 'both', splash: 2.2, hero: true, fragmentCost: 80, unlockTrophies: 4300,
+    abilities: [{ type: 'chain', bounces: 4, damage: 0.7 }],
+    model: humanoid('#5a3a8a', '#f0c8a0', { helmet: '#c26bf2', weapon: '#ffe07a', plume: '#7fe0a8' })
+  }),
 ];
 
 // ————————————————————————— заклинания —————————————————————————
@@ -774,13 +830,15 @@ const BUILDINGS = [
     desc: 'Электрическая башня, бьющая и по земле, и по воздуху.',
     hp: 950, damage: 155, hitSpeed: 1.0, range: 6.0, speed: 0, targets: 'both',
     building: { lifetime: 30 },
+    abilities: [{"type": "stunHit", "duration": 0.3}],
     model: turret('#9aa3b5', '#3b5bb5', '#66e0ff')
   }),
   card({
     id: 'watchtower', name: 'Сторожевая башня', rarity: 'common', type: 'building', cost: 3,
     desc: 'Башня лучников для долгой обороны.',
-    hp: 1000, damage: 115, hitSpeed: 0.9, range: 6.2, speed: 0, targets: 'both',
+    hp: 877, damage: 100, hitSpeed: 0.9, range: 6.2, speed: 0, targets: 'both',
     building: { lifetime: 35 },
+    abilities: [{"type": "crit", "chance": 0.18, "multiplier": 1.9}],
     model: turret('#a89a76', '#8a5a2b', '#e8c860')
   }),
   card({
@@ -788,6 +846,7 @@ const BUILDINGS = [
     desc: 'Бьёт с огромного расстояния по площади. Только по земле.',
     hp: 1000, damage: 260, hitSpeed: 3.2, range: 9.5, speed: 0, targets: 'ground', splash: 2.0,
     building: { lifetime: 30 },
+    abilities: [{"type": "deathDamage", "damage": 120, "radius": 1.5}],
     model: building('#5b5f73', '#8b8fa3', '#3b3b44', '#ff8b3c')
   }),
   card({
@@ -835,6 +894,7 @@ const BUILDINGS = [
     desc: 'Магический обелиск с лучом смерти. Очень высокий урон.',
     hp: 1450, damage: 145, hitSpeed: 0.55, range: 7.0, speed: 0, targets: 'both',
     building: { lifetime: 35 },
+    abilities: [{"type": "chain", "bounces": 2, "damage": 0.6}],
     model: turret('#2c2c4a', '#6d5bb5', '#c26bf2')
   })
 ];

@@ -22,7 +22,7 @@ export class BattleAI {
   constructor(battle, team = 'ai', difficulty = 0) {
     this.battle = battle;
     this.team = team;
-    this.d = Math.max(0, Math.min(5, difficulty | 0));
+    this.d = Math.max(0, Math.min(9, difficulty | 0));
     this.thinkIn = (1.3 - this.d * 0.12) + Math.random() * (1.5 - this.d * 0.16);
     this.pushIn = 8;
     this.spellIn = 2 + Math.random() * 3;

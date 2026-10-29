@@ -63,6 +63,7 @@ export function emptyProgress() {
     gold: 150,
     cardLevels: {},   // cardId -> уровень
     cardCopies: {},   // cardId -> сколько копий карты есть (для апгрейда)
+    unlockedCards: [],// id карт, открытых для использования (сначала стартовый набор)
     chests: [],       // очередь сундуков (макс. 4)
     tournament: null, // текущий турнир
     cup: null,        // турнирная лига (сетка 3 раунда)
@@ -82,7 +83,9 @@ export function emptyProgress() {
     forges: 0,        // эволюций в кузнице
     mythics: 0,       // мифических карт (3 звезды)
     pass: { season: null, xp: 0, premium: false, claimed: [], claimedPremium: [] },
-    ach: {}           // id достижения -> true (получено)
+    ach: {},          // id достижения -> true (получено)
+    heroes: [],       // разблокированные герои (id)
+    heroFragments: {} // id героя -> сколько фрагментов собрано
   };
 }
 
@@ -118,6 +121,9 @@ export function normalizeProgress(p) {
       if (v > 0) out.cardCopies[id] = Math.min(999999, v);
     }
   }
+  out.unlockedCards = Array.isArray(p.unlockedCards) ? p.unlockedCards.filter((id) => typeof id === 'string') : [];
+  out.heroes = Array.isArray(p.heroes) ? p.heroes.filter((id) => typeof id === 'string') : [];
+  out.heroFragments = (p.heroFragments && typeof p.heroFragments === 'object') ? p.heroFragments : {};
   out.chests = Array.isArray(p.chests) ? p.chests.filter((c) => c && typeof c === 'object').slice(0, 4) : [];
   out.tournament = p.tournament && typeof p.tournament === 'object' ? p.tournament : null;
   out.cup = (p.cup && typeof p.cup === 'object')
@@ -186,6 +192,85 @@ export function addCardCopies(progress, cardId, n) {
   return progress.cardCopies[cardId];
 }
 
+// ——— разблокировка карт ———
+
+export const STARTER_CARDS = [
+  'knight','archers','skeletons','goblins','spear_goblins','bomber',
+  'barbarians','valkyrie','musketeer','giant','cannon','tesla',
+  'arrows','zap','fireball'
+];
+
+export const HERO_FRAGMENTS_FOR_UNLOCK = 80;
+
+// фрагменты героя (id -> количество)
+export function heroFragmentsOf(progress, heroId) {
+  if (!progress) return 0;
+  progress.heroFragments = progress.heroFragments || {};
+  return progress.heroFragments[heroId] || 0;
+}
+
+export function addHeroFragments(progress, heroId, n) {
+  if (!progress || !heroId) return 0;
+  progress.heroFragments = progress.heroFragments || {};
+  progress.heroFragments[heroId] = Math.min(999999, (progress.heroFragments[heroId] || 0) + Math.max(0, Math.floor(n || 0)));
+  return progress.heroFragments[heroId];
+}
+
+export function isHeroUnlocked(progress, heroId) {
+  if (!progress) return false;
+  progress.heroes = progress.heroes || [];
+  return progress.heroes.includes(heroId);
+}
+
+export function unlockHero(progress, heroId) {
+  if (!progress) return false;
+  progress.heroes = progress.heroes || [];
+  if (!progress.heroes.includes(heroId)) {
+    progress.heroes.push(heroId);
+    return true;
+  }
+  return false;
+}
+
+export function isCardUnlocked(progress, cardId) {
+  const u = progress && progress.unlockedCards;
+  return u && u.includes(cardId);
+}
+
+// разблокировать карту (вернёт true, если только что открыта)
+export function unlockCard(progress, cardId) {
+  if (!progress) return false;
+  progress.unlockedCards = progress.unlockedCards || [];
+  if (!progress.unlockedCards.includes(cardId)) {
+    progress.unlockedCards.push(cardId);
+    return true;
+  }
+  return false;
+}
+
+// открыть стартовый набор карт (новый аккаунт)
+export function unlockStarterCards(progress) {
+  if (!progress) return [];
+  const freshly = [];
+  for (const id of STARTER_CARDS) {
+    if (unlockCard(progress, id)) freshly.push(id);
+  }
+  return freshly;
+}
+
+// разблокировать карты, доступные на текущем количестве кубков
+// cardMeta — массив {id, unlockTrophies}
+export function applyUnlocksByTrophies(progress, cardMeta, trophies) {
+  if (!progress) return [];
+  const freshly = [];
+  const tr = trophies || 0;
+  for (const c of cardMeta) {
+    const t = c.unlockTrophies || 0;
+    if (t <= tr && unlockCard(progress, c.id)) freshly.push(c.id);
+  }
+  return freshly;
+}
+
 // характеристики карты с учётом уровня (клон — движок не трогаем)
 export function scaleCard(card, level) {
   const m = levelMultiplier(level);
@@ -231,15 +316,22 @@ export function applyUpgrade(progress, cardId) {
 // ——— сундуки ———
 
 const CHEST_TYPES = [
-  { type: 'wood', name: 'Деревянный сундук', icon: '📦', gold: [40, 80], cards: 1, copies: [3, 6] },
-  { type: 'iron', name: 'Железный сундук', icon: '🧰', gold: [90, 160], cards: 2, copies: [7, 12] },
-  { type: 'gold', name: 'Золотой сундук', icon: '💰', gold: [180, 300], cards: 3, copies: [14, 24] },
-  { type: 'royal', name: 'Королевский сундук', icon: '👑', gold: [350, 600], cards: 5, copies: [30, 55] }
+  { type: 'wood', name: 'Деревянный сундук', icon: '📦', gold: [60, 120], cards: 1, copies: [5, 10] },
+  { type: 'iron', name: 'Железный сундук', icon: '🧰', gold: [140, 240], cards: 2, copies: [12, 20] },
+  { type: 'gold', name: 'Золотой сундук', icon: '💰', gold: [280, 450], cards: 3, copies: [22, 36] },
+  { type: 'royal', name: 'Королевский сундук', icon: '👑', gold: [550, 900], cards: 5, copies: [45, 80] },
+  { type: 'legendary', name: 'Легендарный сундук', icon: '💎', gold: [1000, 1800], cards: 6, copies: [90, 150] },
+  { type: 'season', name: 'Сезонный сундук', icon: '🎖', gold: [700, 1200], cards: 5, copies: [60, 100] }
 ];
 
 export function rollChest(win) {
   const r = Math.random();
-  const idx = win ? (r < 0.55 ? 0 : r < 0.85 ? 1 : r < 0.97 ? 2 : 3) : (r < 0.8 ? 0 : 1);
+  let idx;
+  if (win) {
+    idx = r < 0.40 ? 0 : r < 0.70 ? 1 : r < 0.90 ? 2 : r < 0.97 ? 3 : r < 0.99 ? 4 : 5;
+  } else {
+    idx = r < 0.65 ? 0 : r < 0.90 ? 1 : r < 0.97 ? 2 : r < 0.99 ? 3 : 5;
+  }
   return { ...CHEST_TYPES[idx], id: Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36) };
 }
 

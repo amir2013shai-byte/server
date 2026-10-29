@@ -6,8 +6,9 @@ import { emptyProgress, normalizeProgress, currentSeasonId, seasonReward } from 
 const KEY = 'bc_accounts_v1';
 export const ADMIN_NAME = 'admin';
 // Пароль админа НЕ хранится в коде — только хеш (см. документацию релиза).
-const ADMIN_SALT = 'KS2026AA';
-const ADMIN_HASH = '9c08bb78e20d2eb1';
+const ADMIN_SALT = 'KS2026BB';
+const ADMIN_HASH = 'c745758008d49c34';
+export const MAX_ACCOUNTS = 2;
 
 function load() {
   try {
@@ -117,6 +118,8 @@ export const accounts = {
     if (!n || n.length < 2) return { ok: false, error: 'Имя: минимум 2 символа' };
     if (!pw || String(pw).length < 4) return { ok: false, error: 'Пароль: минимум 4 символа' };
     if (s.users[n]) return { ok: false, error: 'Такой аккаунт уже есть' };
+    const playerCount = Object.keys(s.users).filter((k) => k !== ADMIN_NAME).length;
+    if (playerCount >= MAX_ACCOUNTS) return { ok: false, error: 'На устройстве уже 2 аккаунта — удалите лишний или войдите в существующий' };
     const salt = friendCode(n);
     s.users[n] = {
       name: n,

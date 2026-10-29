@@ -16,7 +16,7 @@ global.localStorage = {
 const { DEFAULT_BALANCE, cardBudget, cardSpend, cardBalance, mergeBalance } = await import('../src/data/balance.js');
 const { encodeCard, decodeCard } = await import('../src/share.js');
 const { accounts, ADMIN_NAME, hashPassword } = await import('../src/accounts.js');
-const ADMIN_PASSWORD = 'Kl3sh-Royal-2026!'; // пароль админа для тестов
+const ADMIN_PASSWORD = 'Kl3sh-R0y@l-X9!2026'; // пароль админа для тестов
 
 console.log('— баланс —');
 step('бюджет растёт от стоимости', () => {

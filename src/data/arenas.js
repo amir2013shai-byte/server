@@ -55,7 +55,44 @@ export const ARENAS = [
       river: '#3a6ec8', riverLine: 'rgba(230,220,255,0.20)',
       bridge: '#8a7a5c', bridgePlank: 'rgba(50,40,22,0.35)', bridgeRail: '#6e6148', bridgeEdge: 'rgba(34,28,16,0.55)'
     }
-  }
+  },
+  {
+    id: 'abyss', name: 'Глубины бездны', icon: '🌀', min: 3200, difficulty: 6,
+    colors: {
+      wall: '#1c2038', fieldA: '#2e3a62', fieldB: '#354371',
+      ownTint: 'rgba(80,120,240,0.14)', enemyTint: 'rgba(220,90,130,0.12)',
+      river: '#5b3cd6', riverLine: 'rgba(190,160,255,0.22)',
+      bridge: '#3a3a62', bridgePlank: 'rgba(20,18,44,0.42)', bridgeRail: '#2e2e52', bridgeEdge: 'rgba(12,10,28,0.6)'
+    }
+  },
+  {
+    id: 'sky', name: 'Небесные сады', icon: '☁️', min: 3700, difficulty: 7,
+    colors: {
+      wall: '#4a5a80', fieldA: '#7ab8d8', fieldB: '#88c4e2',
+      ownTint: 'rgba(60,110,220,0.10)', enemyTint: 'rgba(220,90,70,0.08)',
+      river: '#62c8f2', riverLine: 'rgba(255,255,255,0.30)',
+      bridge: '#e8d8a8', bridgePlank: 'rgba(140,110,60,0.30)', bridgeRail: '#c8b488', bridgeEdge: 'rgba(90,70,36,0.5)'
+    }
+  },
+  {
+    id: 'crater', name: 'Драконий кратер', icon: '🌋', min: 4300, difficulty: 8,
+    colors: {
+      wall: '#2c1a1a', fieldA: '#5a2c22', fieldB: '#6a3628',
+      ownTint: 'rgba(70,110,220,0.12)', enemyTint: 'rgba(255,110,50,0.14)',
+      river: '#e04a1a', riverLine: 'rgba(255,190,110,0.35)',
+      bridge: '#3c2418', bridgePlank: 'rgba(16,8,4,0.5)', bridgeRail: '#2c1a10', bridgeEdge: 'rgba(10,5,2,0.6)'
+    }
+  },
+  {
+    id: 'stars', name: 'Звёздный трон', icon: '🌟', min: 5000, difficulty: 9,
+    colors: {
+      wall: '#141430', fieldA: '#232349', fieldB: '#2a2a56',
+      ownTint: 'rgba(90,130,255,0.16)', enemyTint: 'rgba(230,110,180,0.14)',
+      river: '#7a5cff', riverLine: 'rgba(220,210,255,0.3)',
+      bridge: '#4a4a88', bridgePlank: 'rgba(24,22,60,0.45)', bridgeRail: '#3c3c72', bridgeEdge: 'rgba(14,12,40,0.6)'
+    }
+  },
+
 ];
 
 // арена по кубкам игрока
