@@ -176,7 +176,10 @@ export class BattleView {
     this.ghost.visible = true;
     const c = this.pendingCard;
     this.ghost.ok = this.battle.canPlaceAt(x, y, this.opts.team || 'player', c && c.id ? c : null);
-    this.ghost.radius = c && c.type === 'spell' && c.spell ? (c.spell.radius || 2.5) : 1.1;
+    const isSpell = c && c.type === 'spell' && c.spell;
+    const isBuilding = c && c.type === 'building';
+    this.ghost.radius = isSpell ? (c.spell.radius || 2.5)
+      : (isBuilding && c.range ? c.range : 1.1);
   }
 
   // ——— синхронизация ———

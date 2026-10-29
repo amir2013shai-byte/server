@@ -351,7 +351,6 @@ export class App {
             <button class="btn btn-blue" id="m-deck">🃏 Моя колода (${this.deck.length}/8)</button>
             <button class="btn btn-ghost" id="m-progress">💰 Прокачка и сундуки</button>
             <button class="btn btn-ghost" id="m-rating">🏆 Рейтинг и сезоны</button>
-            <button class="btn btn-ghost" id="m-draft">🎲 Драфт</button>
             <button class="btn btn-ghost" id="m-campaign">📖 Кампания с боссами</button>
             <button class="btn btn-ghost" id="m-cup">🏆 Турнирная лига</button>
             <button class="btn btn-ghost" id="m-forge">🔥 Кузница и эволюция</button>
@@ -379,7 +378,6 @@ export class App {
     this.root.querySelector('#m-deck').onclick = () => { this.sfx.play('ui'); this.showDeck(); };
     this.root.querySelector('#m-progress').onclick = () => { this.sfx.play('ui'); this.showProgress(); };
     this.root.querySelector('#m-rating').onclick = () => { this.sfx.play('ui'); this.showRating(); };
-    this.root.querySelector('#m-draft').onclick = () => { this.sfx.play('ui'); this.showDraft(); };
     this.root.querySelector('#m-campaign').onclick = () => { this.sfx.play('ui'); this.showCampaign(); };
     this.root.querySelector('#m-cup').onclick = () => { this.sfx.play('ui'); this.showTournament(); };
     this.root.querySelector('#m-forge').onclick = () => { this.sfx.play('ui'); this.showForge(); };
@@ -645,7 +643,7 @@ export class App {
         div.style.borderColor = glow;
         div.style.boxShadow = `0 0 18px ${glow}55`;
         div.innerHTML = `
-          <div class="card-tile rarity-${item.rarity}" style="width:58px">
+          <div class="card-tile rarity-${item.rarity} ${item.hero ? 'hero' : ''}" style="width:58px">
             <div class="card-cost">${c ? c.cost : '?'}</div>
             ${c ? this.cardIconHtml(c) : ''}
           </div>
@@ -936,7 +934,6 @@ export class App {
             <div class="row wrap">
               <button class="btn btn-chip" id="m-sudden">💀 Внезапная смерть</button>
               <button class="btn btn-chip" id="m-x2">⚡ Двойной эликсир</button>
-              <button class="btn btn-chip" id="m-draft">🎲 Драфт</button>
               <button class="btn btn-chip" id="m-tournament">🏆 Турнир</button>
             </div>
             <div class="muted mt8" style="font-size:11px">
@@ -1006,10 +1003,6 @@ export class App {
     this.root.querySelector('#m-x2').onclick = () => {
       this.sfx.play('ui');
       this.startBattle('x2');
-    };
-    this.root.querySelector('#m-draft').onclick = () => {
-      this.sfx.play('ui');
-      this.startBattle('draft');
     };
     this.root.querySelector('#m-tournament').onclick = () => {
       this.sfx.play('ui');
@@ -1244,7 +1237,7 @@ export class App {
           </div>
           <div class="cards-grid">
             ${filtered.map((c) => `
-              <div class="card-tile rarity-${c.rarity} ${this.deck.includes(c.id) ? 'in-deck' : ''}" data-id="${c.id}">
+              <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''} ${this.deck.includes(c.id) ? 'in-deck' : ''}" data-id="${c.id}">
                 <div class="card-cost">${c.cost}</div>
                 ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                 ${this.cardIconHtml(c)}
@@ -1282,7 +1275,7 @@ export class App {
     ov.innerHTML = `
       <div class="modal" style="text-align:left">
         <div class="row">
-          <div class="card-tile rarity-${c.rarity}" style="width:86px">
+          <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''}" style="width:86px">
             <div class="card-cost">${c.cost}</div>
             ${this.cardIconHtml(c)}
           </div>
@@ -1379,7 +1372,7 @@ export class App {
               ${Array.from({ length: 8 }).map((_, i) => {
                 const c = this.deck[i] ? this.cards().find((x) => x.id === this.deck[i]) : null;
                 return c
-                  ? `<div class="deck-slot filled rarity-${c.rarity}" data-drop="${c.id}">
+                  ? `<div class="deck-slot filled rarity-${c.rarity} ${c.hero ? 'hero' : ''}" data-drop="${c.id}">
                        <div class="card-cost">${c.cost}</div>
                        ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                        ${this.cardIconHtml(c)}
@@ -1473,7 +1466,7 @@ export class App {
           <div class="muted mb12">Нажмите на карту, чтобы изменить характеристики, абилки и рисунок карты. Пользовательские карты помечены ✏️.</div>
           <div class="cards-grid">
             ${list.map((c) => `
-              <div class="card-tile rarity-${c.rarity}" data-edit="${c.id}">
+              <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''}" data-edit="${c.id}">
                 <div class="card-cost">${c.cost}</div>
                 ${!this.balanceOf(c).ok ? '<div class="bal-badge">⚠</div>' : ''}
                 ${this.cardIconHtml(c)}
@@ -1598,6 +1591,11 @@ export class App {
                   <select class="input" id="f-bo"><option value="0" ${!draft.buildingOnly ? 'selected' : ''}>Нет</option><option value="1" ${draft.buildingOnly ? 'selected' : ''}>Да</option></select>
                 </div>
                 ${draft.type === 'building' ? `<div class="form-field"><label>Время жизни (сек)</label><input class="input" type="number" id="f-life" value="${draft.building?.lifetime ?? 30}"></div>` : ''}
+                <div class="form-field"><label>Герой (открывается фрагментами)</label>
+                  <select class="input" id="f-hero"><option value="0" ${!draft.hero ? 'selected' : ''}>Нет</option><option value="1" ${draft.hero ? 'selected' : ''}>Да</option></select>
+                </div>
+                ${draft.hero ? `<div class="form-field"><label>Стоимость фрагментов</label><input class="input" type="number" id="f-fragcost" value="${draft.fragmentCost || HERO_FRAGMENTS_FOR_UNLOCK}"></div>
+                <div class="form-field"><label>Открывается при кубках</label><input class="input" type="number" id="f-unlocktroph" value="${draft.unlockTrophies || 0}"></div>` : ''}
               </div>
             </div>` : ''}
 
@@ -1720,6 +1718,11 @@ export class App {
         if (q('#f-flying')) draft.flying = q('#f-flying').value === '1';
         if (q('#f-bo')) draft.buildingOnly = q('#f-bo').value === '1';
         if (q('#f-life')) draft.building = { lifetime: clampNum(q('#f-life').value, 5, 120, 30) };
+        if (q('#f-hero')) {
+          draft.hero = q('#f-hero').value === '1';
+          draft.fragmentCost = clampNum(q('#f-fragcost')?.value || HERO_FRAGMENTS_FOR_UNLOCK, 1, 500, HERO_FRAGMENTS_FOR_UNLOCK);
+          draft.unlockTrophies = clampNum(q('#f-unlocktroph')?.value || 0, 0, 9999, 0);
+        }
         if (q('#f-sradius')) {
           draft.spell = {
             radius: clampNum(q('#f-sradius').value, 0.5, 12, 2.5),
@@ -2953,7 +2956,7 @@ export class App {
             ${list.map((c) => {
               const s = evo[c.id] || 0;
               return `
-                <div class="card-tile rarity-${c.rarity} ${isMythic(s) ? 'mythic' : ''}" data-id="${c.id}">
+                <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''} ${isMythic(s) ? 'mythic' : ''}" data-id="${c.id}">
                   <div class="card-cost">${c.cost}</div>
                   ${this.cardIconHtml(c)}
                   <div class="card-name">${escapeHtml(c.name)}</div>
@@ -2989,7 +2992,7 @@ export class App {
         </div>
         <div class="screen-scroll">
           <div class="form-section" style="text-align:center">
-            <div class="card-tile rarity-${c.rarity} ${isMythic(stars) ? 'mythic' : ''}" style="width:110px;margin:0 auto">
+            <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''} ${isMythic(stars) ? 'mythic' : ''}" style="width:110px;margin:0 auto">
               <div class="card-cost">${c.cost}</div>
               ${this.cardIconHtml(c)}
               <div class="card-name">${escapeHtml(c.name)}</div>
@@ -3308,7 +3311,7 @@ export class App {
       if (!c) return '<div class="deck-slot">?</div>';
       const afford = elixir >= c.cost;
       return `
-        <div class="hand-card ${afford ? '' : 'unaffordable'} ${this.selectedCard === id ? 'active' : ''}" data-hand="${id}">
+        <div class="hand-card ${afford ? '' : 'unaffordable'} ${this.selectedCard === id ? 'active' : ''} ${c.hero ? 'hero' : ''}" data-hand="${id}">
           <div class="card-cost">${c.cost}</div>
           ${this.cardIconHtml(c)}
           <div class="card-name">${c.name}</div>

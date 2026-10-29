@@ -537,11 +537,14 @@ export class Battle {
       }
     }
 
-    // выбор цели
+    // выбор цели: юнит «липнет» к цели, пока она жива, он жив и не оглушён/заморожен
+    const stunned = u.frozenUntil > this.time;
     u.retargetIn -= dt;
-    if (u.retargetIn <= 0 || !this._targetValid(u)) {
+    const targetDead = !this._targetValid(u);
+    if (stunned || targetDead || u.retargetIn <= 0) {
+      // если оглушён — сбрасываем цель, иначе только если цель мертва/недоступна
       u.retargetIn = 0.35;
-      u.targetId = this._pickTarget(u);
+      u.targetId = stunned ? null : this._pickTarget(u);
     }
     const target = this._byId(u.targetId);
     if (!target) {
@@ -607,11 +610,12 @@ export class Battle {
       }
     }
 
-    // стационарные здания атакуют только войска, никогда — башни
+    // стационарные здания атакуют войска и башни противника
     if (u.isBuilding) {
       let best = null, bestD = Infinity;
-      for (const e of this.units) {
-        if (!canHit(e) || e.isBuilding) continue;
+      for (const e of [...this.units, ...this.towers]) {
+        if (e.team !== enemyTeam || !e.alive) continue;
+        if (!e.isTower && !e.isBuilding) continue;
         const d = dist2(u.x, u.y, e.x, e.y);
         if (d <= (u.sight + 2) ** 2 && d < bestD) { bestD = d; best = e; }
       }

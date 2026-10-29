@@ -126,7 +126,8 @@ check('новые карты с моделями', NEW_IDS.every((id) => {
 const bvSrc = readFileSync(new URL('../src/render/battleView.js', import.meta.url), 'utf8');
 check('погода в бою (rain/snow/night/sunset)', ['_drawWeather', '_stepWeather', 'rain', 'snow', 'night', 'sunset'].every((s) => bvSrc.includes(s)));
 check('музыка и звуки событий', uiSrc.includes('class Music') && uiSrc.includes('music.setMode') && uiSrc.includes('towerDown'));
-check('режим драфта', uiSrc.includes('showDraft') && uiSrc.includes('m-draft') && uiSrc.includes('_draftDeck'));
+check('кнопка драфта убрана с главного экрана', !uiSrc.includes('id="m-draft"'));
+check('функция драфта всё ещё доступна в коде', uiSrc.includes('showDraft'));
 check('режим «Экзамен» удалён из файлов', !uiSrc.includes('showExam'));
 
 if (failed) {

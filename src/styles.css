@@ -1032,3 +1032,63 @@ select.input { appearance: none; }
 }
 .draft-card:active { transform: scale(0.95); }
 .draft-card .card-name { min-height: 22px; }
+
+/* ————— редизайн карт: герой, рамки редкости, подсветка ————— */
+.card-tile.hero {
+  border-color: #ffd76a !important;
+  box-shadow: 0 0 20px rgba(255, 215, 106, 0.6), 0 0 40px rgba(255, 215, 106, 0.3);
+  position: relative;
+}
+.card-tile.hero::after {
+  content: '🦸';
+  position: absolute;
+  top: 4px; right: 4px;
+  font-size: 14px;
+  background: rgba(0,0,0,0.6);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.card-tile:hover {
+  border-color: #fff;
+  box-shadow: 0 0 16px rgba(255,255,255,0.3);
+  transform: translateY(-2px);
+}
+.hand-card.hero {
+  border-color: #ffd76a;
+  box-shadow: 0 0 16px rgba(255, 215, 106, 0.5);
+}
+.hand-card.hero::after {
+  content: '🦸';
+  position: absolute;
+  top: 2px; right: 2px;
+  font-size: 10px;
+  background: rgba(0,0,0,0.7);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* арены: более выраженные темы поля */
+.battle-arena {
+  position: absolute;
+  top: 4px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  z-index: 5;
+}
+
+/* preview radius для зданий и спелов при постановке */
+.preview-range {
+  fill: rgba(255, 215, 106, 0.15);
+  stroke: rgba(255, 215, 106, 0.4);
+  stroke-width: 1.5;
+}
+.preview-range.invalid {
+  fill: rgba(255, 90, 90, 0.15);
+  stroke: rgba(255, 90, 90, 0.5);
+}
