@@ -473,10 +473,11 @@ export class Battle {
   _updateUnit(u, dt) {
     const c = u.card;
 
-    // таймер жизни зданий
-    if (u.isBuilding) {
-      u.lifetime -= dt;
-      if (u.lifetime <= 0) {
+    // время жизни здания привязано к хп: хп медленно истекает со временем вместо отдельного таймера
+    if (u.isBuilding && u.card.building?.lifetime) {
+      const drain = (u.hp / Math.max(0.1, u.card.building.lifetime)) * dt;
+      u.hp -= drain;
+      if (u.hp <= 0) {
         this._kill(u, null);
         return;
       }

@@ -1268,24 +1268,25 @@ export class App {
       const def = ABILITY_DEFS[a.type];
       return def ? def.label : a.type;
     });
+    const cLvl = cardLevel(this.progress, c.id) || 1;
     const stats = c.type === 'spell'
       ? `Радиус: <b>${c.spell?.radius}</b> • Эффект: <b>${SPELL_EFFECTS[c.spell?.effect] || c.spell?.effect}</b>` +
         (c.spell?.damage ? ` • Урон: <b>${c.spell.damage}</b>` : '') +
         (c.spell?.heal ? ` • Лечение: <b>${c.spell.heal}</b>` : '')
-      : `HP: <b>${c.hp}</b> • Урон: <b>${c.damage}</b> • Скор. атаки: <b>${c.hitSpeed}с</b><br>
+      : `HP: <b>${c.hp}</b> <span style="color:#f0d890">ур.${cLvl}</span> • Урон: <b>${c.damage}</b> • Скор. атаки: <b>${c.hitSpeed}с</b><br>
          Дальность: <b>${c.range}</b> • Скорость: <b>${c.speed || 0}</b> • Цели: <b>${c.targets === 'both' ? 'земля+воздух' : 'земля'}</b>${c.flying ? ' • <b>летает</b>' : ''}${c.buildingOnly ? ' • <b>только здания</b>' : ''}${c.splash ? ` • Урон по площади: <b>${c.splash}</b>` : ''}${c.tags?.length ? ` • <b>Теги:</b> ${c.tags.map(t => '<span class="ability-tag">' + (TAG_LABELS[t] || t) + '</span>').join(' ')}` : ''}`;
 
     const ov = document.createElement('div');
     ov.className = 'overlay';
     ov.innerHTML = `
       <div class="modal" style="text-align:left">
+        <h2 style="margin:0 0 8px 0">${c.name}</h2>
         <div class="row">
           <div class="card-tile rarity-${c.rarity} ${c.hero ? 'hero' : ''}" style="width:86px">
             <div class="card-cost">${c.cost}</div>
             ${this.cardIconHtml(c)}
           </div>
           <div style="flex:1">
-            <h2 style="margin:0">${c.name}</h2>
             <div class="muted">${RARITY[c.rarity]?.label || c.rarity} • ${TYPE_LABELS[c.type]} • ${c.cost} эликсира${c.count > 1 ? ` • ×${c.count}` : ''}</div>
           </div>
         </div>
@@ -3570,7 +3571,11 @@ export class App {
         if (e.type === 'towerShot' || e.type === 'attack') this.sfx.play('hit');
         else if (e.type === 'boom') this.sfx.play('boom');
         else if (e.type === 'towerDown') this.sfx.play('tower');
-        else if (e.type === 'finish') this._showResult();
+        else if (e.type === 'finish') {
+          this._showResult();
+          // останавливаем цикл боя после показа результата, чтобы не было лишних кадров
+          if (this.battleRaf) { cancelAnimationFrame(this.battleRaf); this.battleRaf = 0; }
+        }
       }
 
       this.battleRaf = requestAnimationFrame(step);
