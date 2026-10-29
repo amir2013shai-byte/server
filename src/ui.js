@@ -934,6 +934,7 @@ export class App {
             <div class="row wrap">
               <button class="btn btn-chip" id="m-sudden">💀 Внезапная смерть</button>
               <button class="btn btn-chip" id="m-x2">⚡ Двойной эликсир</button>
+              <button class="btn btn-chip" id="m-draft">🎲 Драфт</button>
               <button class="btn btn-chip" id="m-tournament">🏆 Турнир</button>
             </div>
             <div class="muted mt8" style="font-size:11px">
@@ -1003,6 +1004,10 @@ export class App {
     this.root.querySelector('#m-x2').onclick = () => {
       this.sfx.play('ui');
       this.startBattle('x2');
+    };
+    this.root.querySelector('#m-draft').onclick = () => {
+      this.sfx.play('ui');
+      this.showDraft();
     };
     this.root.querySelector('#m-tournament').onclick = () => {
       this.sfx.play('ui');
