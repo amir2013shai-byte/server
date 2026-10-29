@@ -856,3 +856,251 @@ select.input { appearance: none; }
 
 /* ——— 2D-поле битвы ——— */
 .battle-2d { background: #2c3a55; }
+
+/* ————— крупное обновление: кампания, турнир, кузница, война, профиль ————— */
+.mission-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 6px 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #eef2fb;
+  text-align: left;
+  cursor: pointer;
+}
+.mission-row:active { transform: scale(0.98); }
+.mission-row.locked { opacity: 0.55; }
+.mission-icon { font-size: 22px; }
+.mission-stars { color: #ffd76a; font-size: 13px; letter-spacing: 1px; }
+.boss-card {
+  display: flex; gap: 12px; align-items: center;
+  padding: 12px;
+  margin: 10px 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(190, 60, 60, 0.25), rgba(120, 40, 160, 0.25));
+  border: 1px solid rgba(255, 110, 110, 0.45);
+}
+.cup-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.cup-row.done { border-color: rgba(80, 220, 130, 0.5); }
+.cup-row.now { border-color: rgba(255, 200, 80, 0.65); box-shadow: 0 0 14px rgba(255, 200, 80, 0.25); }
+.cup-row.lock { opacity: 0.5; }
+.war-bar {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.war-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3d8bff, #7a5cff, #c26bf2);
+  transition: width 0.5s ease;
+}
+.ach-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  margin: 6px 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ach-row.got {
+  border-color: rgba(80, 220, 130, 0.5);
+  background: rgba(45, 160, 90, 0.14);
+}
+.evo-stars {
+  font-size: 11px;
+  color: #ffd76a;
+  text-align: center;
+  padding: 2px 0 4px;
+  letter-spacing: 1px;
+}
+.card-tile.mythic {
+  border-color: #ffd76a;
+  box-shadow: 0 0 16px rgba(255, 215, 106, 0.5);
+}
+
+/* ————— бой-пропуск: красивый сезонный трек ————— */
+.pass-hero {
+  position: relative;
+  padding: calc(14px + env(safe-area-inset-top)) 18px 20px;
+  background: linear-gradient(135deg, #2b1a5e, #7a2bc2, #c2387a, #f0a13c);
+  background-size: 300% 300%;
+  animation: passShift 9s ease infinite;
+  overflow: hidden;
+  text-align: center;
+}
+@keyframes passShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.pass-hero-glow {
+  position: absolute; inset: -40%;
+  background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.22), transparent 55%),
+              radial-gradient(circle at 80% 80%, rgba(255, 215, 106, 0.25), transparent 50%);
+  animation: passGlow 6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes passGlow {
+  from { transform: translate(-4%, -3%) scale(1); }
+  to { transform: translate(4%, 3%) scale(1.08); }
+}
+.pass-title {
+  position: relative;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  margin-top: 6px;
+}
+.pass-season {
+  position: relative;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12.5px;
+  font-weight: 700;
+  margin: 4px 0 10px;
+}
+.pass-tier-badge {
+  position: relative;
+  display: inline-block;
+  padding: 5px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #ffe9a8;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.pass-xp {
+  position: relative;
+  height: 16px;
+  margin: 12px 24px 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+}
+.pass-xp-fill {
+  position: relative;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #49d9ff, #7fe0a8, #ffe07a);
+  transition: width 0.6s ease;
+  overflow: hidden;
+}
+.pass-xp-shimmer {
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 25%, rgba(255, 255, 255, 0.55) 50%, transparent 75%);
+  transform: translateX(-100%);
+  animation: passShimmer 2.2s linear infinite;
+}
+@keyframes passShimmer {
+  to { transform: translateX(100%); }
+}
+.pass-xp-label {
+  position: relative;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pass-premium-on {
+  position: relative;
+  display: inline-block;
+  margin-top: 12px;
+  padding: 7px 18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd76a, #f0a13c);
+  color: #4a2c00;
+  font-weight: 900;
+  font-size: 13px;
+  animation: passPulse 2s ease-in-out infinite;
+}
+@keyframes passPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 215, 106, 0.5); }
+  50% { box-shadow: 0 0 26px rgba(255, 215, 106, 0.95); }
+}
+.pass-buy {
+  position: relative;
+  margin-top: 12px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd76a, #f0a13c);
+  border: 1px solid #fff2c8;
+  color: #4a2c00;
+  font-weight: 900;
+  font-size: 13.5px;
+}
+.pass-buy:active { transform: scale(0.96); }
+.pass-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.pass-cell {
+  border-radius: 14px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pass-cell.unlocked {
+  border-color: rgba(120, 200, 255, 0.4);
+  background: rgba(60, 120, 220, 0.12);
+}
+.pass-cell-num {
+  text-align: center;
+  font-weight: 900;
+  font-size: 12px;
+  color: #9fc0ff;
+  margin-bottom: 6px;
+}
+.pass-reward {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  margin: 4px 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  min-height: 52px;
+  cursor: pointer;
+}
+.pass-reward.prem {
+  background: linear-gradient(160deg, rgba(255, 215, 106, 0.18), rgba(240, 161, 60, 0.12));
+  border-color: rgba(255, 215, 106, 0.35);
+}
+.pass-reward.locked { opacity: 0.55; filter: saturate(0.5); cursor: default; }
+.pass-reward.claimed { opacity: 0.6; cursor: default; }
+.pass-reward-icon { font-size: 20px; }
+.pass-reward-label { font-size: 9.5px; text-align: center; color: #cfe0ff; line-height: 1.2; }
+.pass-check {
+  position: absolute; top: 3px; right: 6px;
+  color: #7fe0a8; font-weight: 900; font-size: 12px;
+}
+.pass-glow {
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  color: #ffe9a8;
+  background: rgba(255, 215, 106, 0.22);
+  border: 1px solid rgba(255, 215, 106, 0.55);
+  border-radius: 999px;
+  padding: 1px 7px;
+  animation: passPulse 1.6s ease-in-out infinite;
+}
+.pass-lock { font-size: 13px; }

@@ -14,6 +14,13 @@ import { ReplayRecorder, replaySize, saveReplayToList, encodeReplay, decodeRepla
 import { ARENAS, arenaFor, nextArena } from './data/arenas.js';
 import { pickTask, checkSolution } from './code/cppTasks.js';
 import { SUBJECTS, QUESTIONS, pickQuestions } from './code/quiz.js';
+import { MISSIONS, CHAPTERS, BOSSES, missionById, chapterMissions, isUnlocked } from './data/campaign.js';
+import { BossController } from './game/bosses.js';
+import { CommanderAI } from './game/commanders.js';
+import { PASS_TIERS, PASS_XP_PER_TIER, PASS_REWARDS, PREMIUM_COST, tierForXp, passReward } from './data/pass.js';
+import { ACHIEVEMENTS, statsFrom } from './data/achievements.js';
+import { EVO_MAX, evoCost, evoMultiplier, applyEvo, isMythic, evoLabel } from './game/forge.js';
+import { levelFromXp, xpForLevel, chestByType } from './progress.js';
 import { Battle, MATCH_TIME } from './game/engine.js';
 import { BattleAI } from './game/ai.js';
 import { BattleView } from './render/battleView.js';
@@ -266,6 +273,13 @@ export class App {
             <button class="btn btn-ghost" id="m-progress">💰 Прокачка и сундуки</button>
             <button class="btn btn-ghost" id="m-rating">🏆 Рейтинг и сезоны</button>
             <button class="btn btn-primary" id="m-exam">🎓 Особый режим — Экзамен</button>
+            <button class="btn btn-ghost" id="m-campaign">📖 Кампания с боссами</button>
+            <button class="btn btn-ghost" id="m-cup">🏆 Турнирная лига</button>
+            <button class="btn btn-ghost" id="m-forge">🔥 Кузница и эволюция</button>
+            <button class="btn btn-ghost" id="m-coop">🤝 Командный бой 2×2</button>
+            <button class="btn btn-ghost" id="m-war">⚔️ Клановые войны</button>
+            <button class="btn btn-ghost" id="m-pass">🎖 Бой-пропуск</button>
+            <button class="btn btn-ghost" id="m-profile">⭐ Профиль и достижения</button>
             <button class="btn btn-ghost" id="m-replays">🎬 Реплеи (${this.replays.length})</button>
             <button class="btn btn-ghost" id="m-cards">📚 Коллекция карт</button>
             <button class="btn btn-ghost" id="m-editor">🛠 Редактор карт</button>
@@ -287,6 +301,13 @@ export class App {
     this.root.querySelector('#m-progress').onclick = () => { this.sfx.play('ui'); this.showProgress(); };
     this.root.querySelector('#m-rating').onclick = () => { this.sfx.play('ui'); this.showRating(); };
     this.root.querySelector('#m-exam').onclick = () => { this.sfx.play('ui'); this.showExam(); };
+    this.root.querySelector('#m-campaign').onclick = () => { this.sfx.play('ui'); this.showCampaign(); };
+    this.root.querySelector('#m-cup').onclick = () => { this.sfx.play('ui'); this.showTournament(); };
+    this.root.querySelector('#m-forge').onclick = () => { this.sfx.play('ui'); this.showForge(); };
+    this.root.querySelector('#m-coop').onclick = () => { this.sfx.play('ui'); this.showCoop(); };
+    this.root.querySelector('#m-war').onclick = () => { this.sfx.play('ui'); this.showClanWar(); };
+    this.root.querySelector('#m-pass').onclick = () => { this.sfx.play('ui'); this.showPass(); };
+    this.root.querySelector('#m-profile').onclick = () => { this.sfx.play('ui'); this.showProfile(); };
     this.root.querySelector('#m-replays').onclick = () => { this.sfx.play('ui'); this.showReplays(); };
     this.root.querySelector('#m-cards').onclick = () => { this.sfx.play('ui'); this.showCollection(); };
     this.root.querySelector('#m-editor').onclick = () => { this.sfx.play('ui'); this.showCardList(); };
@@ -2330,8 +2351,20 @@ export class App {
       while (enemyDeck.length < 8) enemyDeck.push(this.deck[enemyDeck.length % this.deck.length]);
     }
 
-    // колоды в бой — с учётом уровней прокачки
-    const cardsById = new Map(this.cards().map((c) => [c.id, scaleCard(c, cardLevel(this.progress, c.id))]));
+    // ——— контекстные режимы: кампания, 2×2, турнирная лига, клановая война ———
+    let bossDef = null;
+    if (mode === 'campaign' && this._campaignCtx && this._campaignCtx.mission) {
+      const m = this._campaignCtx.mission;
+      enemyDeck = m.deck.slice();
+      rules.doubleElixirAt = m.rules.doubleElixirAt ?? 120;
+      if (m.boss) bossDef = BOSSES[m.boss];
+    }
+    if (mode === 'coop') rules.doubleElixirAt = 90;
+    if (mode === 'cup') rules.doubleElixirAt = 100;
+    if (mode === 'clanwar') rules.doubleElixirAt = 100;
+
+    // колоды в бой — с учётом уровней прокачки и эволюции
+    const cardsById = new Map(this.cards().map((c) => [c.id, applyEvo(scaleCard(c, cardLevel(this.progress, c.id)), (this.progress.evo || {})[c.id] || 0)]));
 
     // арена по кубкам: своя тема поля и своя сложность ИИ
     const _cu = accounts.current();
@@ -2392,6 +2425,30 @@ export class App {
       // онлайн: командой соперника управляет живой игрок, а не ИИ;
       // сложность ИИ растёт с ареной (кубками)
       this.ai = online ? { update() {} } : new BattleAI(this.battle, 'ai', arena.difficulty);
+      this._bossCtl = null;
+      this._commanders = null;
+      if (bossDef) {
+        this._bossCtl = new BossController(this.battle, 'ai', bossDef);
+        const king = this.battle.towers.find((t) => t.team === 'ai' && t.kind === 'king');
+        if (king && bossDef.hpBonus) {
+          king.hpMax = (king.hpMax || king.hp) + bossDef.hpBonus;
+          king.hp += bossDef.hpBonus;
+        }
+      }
+      if (mode === 'coop') {
+        const pool = all.map((c) => c.id).filter((id) => !this.deck.includes(id));
+        const pick8 = (arr) => {
+          const a = arr.slice();
+          const out = [];
+          while (out.length < 8 && a.length) out.push(a.splice(Math.floor(Math.random() * a.length), 1)[0]);
+          while (out.length < 8) out.push(this.deck[out.length % this.deck.length]);
+          return out;
+        };
+        this._commanders = [
+          new CommanderAI(this.battle, 'player', pick8(pool), 1),
+          new CommanderAI(this.battle, 'ai', pick8(pool.slice().reverse()), 1)
+        ];
+      }
       if (mode === 'online-host') {
         this._remoteIntents = [];
         this._lastSnapAt = 0;
@@ -2463,6 +2520,526 @@ export class App {
     this.selectedCard = null;
     this._renderHand();
     this._battleLoop();
+  }
+
+  // ————— крупное обновление: кампания, турнир, кузница, 2×2, война, профиль, пропуск —————
+
+  _grantXp(n) {
+    const p = this.progress;
+    const before = levelFromXp(p.xp || 0);
+    p.xp = (p.xp || 0) + Math.max(0, n | 0);
+    const after = levelFromXp(p.xp);
+    p.level = after.level;
+    let line = `<br>⭐ Опыт: +${n}`;
+    if (after.level > before.level) {
+      const reward = 50 * (after.level - before.level);
+      p.gold += reward;
+      line += `<br>🎉 Новый уровень игрока: ${after.level}! +${reward} 💰`;
+    }
+    return line;
+  }
+
+  _addPassXp(n) {
+    const p = this.progress;
+    const season = currentSeasonId();
+    if (p.pass.season !== season) {
+      p.pass = { season, xp: 0, premium: p.pass.premium, claimed: [], claimedPremium: [] };
+    }
+    const before = tierForXp(p.pass.xp);
+    p.pass.xp += Math.max(0, n | 0);
+    const after = tierForXp(p.pass.xp);
+    let line = `<br>🎖 Бой-пропуск: +${n} XP`;
+    if (after > before) line += `<br>🎖 Уровень пропуска: ${after}!`;
+    return line;
+  }
+
+  _checkAchievements() {
+    const p = this.progress;
+    const trophies = (accounts.current() && accounts.current().trophies) || 0;
+    const stats = statsFrom(p, { arenaIdx: ARENAS.indexOf(arenaFor(trophies)), passTier: tierForXp(p.pass.xp) });
+    let line = '';
+    for (const a of ACHIEVEMENTS) {
+      if (p.ach[a.id]) continue;
+      if (a.check(stats)) {
+        p.ach[a.id] = true;
+        p.gold += a.gold;
+        line += `<br>${a.icon} Достижение «${a.title}»! +${a.gold} 💰`;
+      }
+    }
+    return line;
+  }
+
+  // ——— Кампания ———
+
+  showCampaign() {
+    const done = this.progress.campaignDone || {};
+    const totalStars = Object.values(done).reduce((s, n) => s + n, 0);
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">📖 Кампания</div>
+            <div class="top-sub">4 главы • 20 миссий • 6 боссов • звёзды: ${totalStars}/60</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          ${CHAPTERS.map((ch) => `
+            <div class="form-section">
+              <h3>${ch.icon} Глава ${ch.id}. ${escapeHtml(ch.name)}</h3>
+              <div class="muted" style="font-size:12px;margin-bottom:8px">${escapeHtml(ch.desc)}</div>
+              ${chapterMissions(ch.id).map((m) => {
+                const stars = done[m.id] || 0;
+                const un = isUnlocked(m.id, done);
+                return `
+                  <button class="mission-row ${un ? '' : 'locked'}" data-m="${m.id}">
+                    <span class="mission-icon">${m.boss ? '👹' : un ? '⚔️' : '🔒'}</span>
+                    <div style="flex:1">
+                      <b>${escapeHtml(m.name)}</b>
+                      <div class="muted" style="font-size:11px">${escapeHtml(m.enemyName)}</div>
+                    </div>
+                    <span class="mission-stars">${stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : un ? '—' : ''}</span>
+                  </button>`;
+              }).join('')}
+            </div>`).join('')}
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelectorAll('[data-m]').forEach((el) => {
+      el.onclick = () => {
+        const m = missionById(el.dataset.m);
+        if (!m || !isUnlocked(m.id, this.progress.campaignDone || {})) {
+          this.toast('Сначала пройди предыдущую миссию');
+          return;
+        }
+        this.showMissionDetail(m.id);
+      };
+    });
+  }
+
+  showMissionDetail(id) {
+    const m = missionById(id);
+    if (!m) return;
+    const boss = m.boss ? BOSSES[m.boss] : null;
+    const names = m.deck.map((cid) => {
+      const c = this.cards().find((x) => x.id === cid);
+      return escapeHtml(c ? c.name : cid);
+    });
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">${boss ? boss.icon : '⚔️'} ${escapeHtml(m.name)}</div>
+            <div class="top-sub">${escapeHtml(m.enemyName)}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <p style="color:#b8c0d8">${escapeHtml(m.story)}</p>
+            ${boss ? `
+              <div class="boss-card">
+                <div style="font-size:38px">${boss.icon}</div>
+                <div style="flex:1">
+                  <b>БОСС: ${escapeHtml(boss.name)}</b>
+                  <div class="muted" style="font-size:11px;margin:4px 0">${escapeHtml(boss.story)}</div>
+                  <div class="muted" style="font-size:11px">Способности: ${boss.abilities.map((a) => escapeHtml(a.label)).join(' • ')}</div>
+                </div>
+              </div>` : ''}
+            <div class="info-list">
+              Колода врага: ${names.join(', ')}<br>
+              Правила: двойной эликсир с ${m.rules.doubleElixirAt}с • главная вышка врага ×${m.rules.enemyKingHp} HP
+            </div>
+            <div class="info-list" style="margin-top:8px">
+              Награды: +${m.rewards.gold} 💰${m.rewards.copies.map((c) => ` • копии ×${c.count}`).join('')}${m.rewards.chest ? ' • сундук' : ''}
+            </div>
+            <button class="btn btn-primary btn-big btn-block" id="m-start" style="margin-top:14px">⚔️ В бой!</button>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showCampaign();
+    this.root.querySelector('#m-start').onclick = () => {
+      this._campaignCtx = { mission: m };
+      this.startBattle('campaign');
+    };
+  }
+
+  // ——— Турнирная лига ———
+
+  showTournament() {
+    const p = this.progress;
+    const cup = p.cup && p.cup.active ? p.cup : null;
+    const rounds = [
+      { name: 'Четвертьфинал', foe: '🤖 «Сокол»', icon: '🥇' },
+      { name: 'Полуфинал', foe: '🤖 «Молот»', icon: '🥈' },
+      { name: 'Финал', foe: '🤖 «Буря»', icon: '🏆' }
+    ];
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🏆 Турнирная лига</div>
+            <div class="top-sub">Побед в турнирах: ${p.cupWins || 0}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:46px">${cup ? '⚔️' : '🏆'}</div>
+            <h3 style="margin:6px 0">${cup ? `Раунд ${cup.wins + 1} из 3` : 'Турнир ждёт чемпиона!'}</h3>
+            <div class="muted">${cup ? 'Победи трёх соперников подряд и забери главный приз: +400 💰 и титул чемпиона.' : 'Сетка из 3 раундов: боты играют всё умнее. Поражение — вылет, но можно начать заново.'}</div>
+          </div>
+          ${rounds.map((r, i) => {
+            const state = !cup ? 'wait' : (i < cup.round ? 'done' : i === cup.round ? 'now' : 'lock');
+            return `
+              <div class="cup-row ${state}">
+                <span style="font-size:22px">${state === 'done' ? '✅' : r.icon}</span>
+                <div style="flex:1">
+                  <b>${r.name}</b>
+                  <div class="muted" style="font-size:11px">Соперник: ${r.foe} • сложность ${'★'.repeat(i + 2)}${'☆'.repeat(3 - i)}</div>
+                </div>
+                ${state === 'now' ? '<button class="btn btn-primary" id="cup-fight">⚔️ В бой</button>' : ''}
+              </div>`;
+          }).join('')}
+          ${!cup ? '<button class="btn btn-primary btn-big btn-block" id="cup-start" style="margin-top:12px">🏁 Начать турнир</button>' : ''}
+          <div class="muted mt12" style="font-size:11px;text-align:center">За участие: опыт, пропуск и достижения. Чемпион получает +400 💰!</div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    const startBtn = this.root.querySelector('#cup-start');
+    if (startBtn) startBtn.onclick = () => {
+      p.cup = { round: 0, wins: 0, active: true };
+      accounts.saveProgress(p);
+      this.showTournament();
+    };
+    const fightBtn = this.root.querySelector('#cup-fight');
+    if (fightBtn) fightBtn.onclick = () => {
+      this._cupCtx = { round: (p.cup && p.cup.round) || 0 };
+      this.startBattle('cup');
+    };
+  }
+
+  // ——— Кузница и эволюция ———
+
+  showForge() {
+    const evo = this.progress.evo || {};
+    const list = this.cards().filter((c) => !c.hidden && !c.custom);
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🔥 Кузница</div>
+            <div class="top-sub">Эволюция карт: до 3 звёзд • +5% к HP и урону за звезду</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="cards-grid">
+            ${list.map((c) => {
+              const s = evo[c.id] || 0;
+              return `
+                <div class="card-tile rarity-${c.rarity} ${isMythic(s) ? 'mythic' : ''}" data-id="${c.id}">
+                  <div class="card-cost">${c.cost}</div>
+                  ${this.cardIconHtml(c)}
+                  <div class="card-name">${escapeHtml(c.name)}</div>
+                  <div class="evo-stars">${'⭐'.repeat(s)}${'☆'.repeat(EVO_MAX - s)}</div>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelectorAll('[data-id]').forEach((el) => {
+      el.onclick = () => this.showForgeCard(el.dataset.id);
+    });
+  }
+
+  showForgeCard(id) {
+    const c = this.cards().find((x) => x.id === id);
+    if (!c) return;
+    const evo = this.progress.evo || {};
+    const stars = evo[id] || 0;
+    const cost = stars < EVO_MAX ? evoCost(stars) : null;
+    const copies = cardCopiesOf(this.progress, id);
+    const can = cost && this.progress.gold >= cost.gold && copies >= cost.copies;
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🔥 ${escapeHtml(c.name)}</div>
+            <div class="top-sub">${evoLabel(stars)}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div class="card-tile rarity-${c.rarity} ${isMythic(stars) ? 'mythic' : ''}" style="width:110px;margin:0 auto">
+              <div class="card-cost">${c.cost}</div>
+              ${this.cardIconHtml(c)}
+              <div class="card-name">${escapeHtml(c.name)}</div>
+              <div class="evo-stars">${'⭐'.repeat(stars)}${'☆'.repeat(EVO_MAX - stars)}</div>
+            </div>
+            <div class="info-list" style="margin-top:12px;text-align:left">
+              Множитель силы: ×${evoMultiplier(stars).toFixed(2)}<br>
+              Копий карты: <b>${copies}</b> • Золото: <b>${this.progress.gold} 💰</b>
+              ${cost ? `<br>Следующая звезда: <b>${cost.copies} копий</b> + <b>${cost.gold} 💰</b>` : '<br>Максимальная эволюция достигнута!'}
+            </div>
+            ${cost ? `<button class="btn ${can ? 'btn-primary' : 'btn-ghost'} btn-big btn-block" id="f-evolve" ${can ? '' : 'disabled'} style="margin-top:12px">
+              ${isMythic(stars + 1) ? '✨ Стать мифическим!' : '🔥 Эволюционировать'}
+            </button>` : ''}
+            <div class="muted" style="font-size:11px;margin-top:10px">Копии добываются в сундуках, кампании и бой-пропуске. 3 звезды = мифическая карта!</div>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showForge();
+    const btn = this.root.querySelector('#f-evolve');
+    if (btn) btn.onclick = () => {
+      const cc = evoCost(stars);
+      if (this.progress.gold < cc.gold || cardCopiesOf(this.progress, id) < cc.copies) { this.toast('Не хватает ресурсов'); return; }
+      this.progress.gold -= cc.gold;
+      this.progress.cardCopies[id] = cardCopiesOf(this.progress, id) - cc.copies;
+      this.progress.evo[id] = stars + 1;
+      this.progress.forges = (this.progress.forges || 0) + 1;
+      if (isMythic(stars + 1)) this.progress.mythics = (this.progress.mythics || 0) + 1;
+      accounts.saveProgress(this.progress);
+      this.toast(`🔥 Эволюция: ${evoLabel(stars + 1)}!`);
+      this.showForgeCard(id);
+    };
+  }
+
+  // ——— Командный бой 2×2 ———
+
+  showCoop() {
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">🤝 Командный бой 2×2</div>
+            <div class="top-sub">Побед: ${this.progress.coopWins || 0}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:52px">🤝⚔️</div>
+            <h3>Ты и союзник против двоих!</h3>
+            <div class="muted">
+              У тебя — твоя колода. У союзника и врагов — свои колоды и свой эликсир.<br>
+              Победа в 5 боях — достижение «Надёжный союзник».
+            </div>
+            <button class="btn btn-primary btn-big btn-block" id="coop-go" style="margin-top:16px">⚔️ В бой 2×2!</button>
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    this.root.querySelector('#coop-go').onclick = () => this.startBattle('coop');
+  }
+
+  // ——— Клановые войны ———
+
+  showClanWar() {
+    const p = this.progress;
+    const war = p.clanWar || { points: 0, fights: 0 };
+    const canChest = war.points >= 100;
+    const rivals = [
+      { name: 'Клан «Стальные волки»', pts: 120 + ((war.fights * 7) % 60) },
+      { name: 'Клан «Огненный щит»', pts: 90 + ((war.fights * 11) % 50) },
+      { name: 'Клан «Тени леса»', pts: 70 + ((war.fights * 13) % 40) }
+    ];
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">⚔️ Клановые войны</div>
+            <div class="top-sub">Побед в войнах: ${p.clanWarWins || 0}</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section">
+            <h3>🎖 Клановый сундук</h3>
+            <div class="war-bar"><div class="war-fill" style="width:${Math.min(100, war.points)}%"></div></div>
+            <div class="muted" style="font-size:12px;margin:6px 0">Очки клана: <b>${war.points}/100</b> • боёв: ${war.fights}. Победа — +20 очков, поражение — +5.</div>
+            ${canChest
+              ? '<button class="btn btn-primary btn-block" id="war-chest">🎁 Забрать клановый сундук!</button>'
+              : '<button class="btn btn-ghost btn-block" id="war-fight">⚔️ Клановый бой (+20 очков)</button>'}
+          </div>
+          <div class="form-section">
+            <h3>Таблица кланов</h3>
+            <div class="friend-row" style="border-color:#4d8df0">
+              <span style="font-size:20px">🏠</span>
+              <div style="flex:1"><b>Ваш клан</b><div class="muted" style="font-size:11px">${war.points} очков</div></div>
+            </div>
+            ${rivals.map((r) => `
+              <div class="friend-row">
+                <span style="font-size:20px">⚔️</span>
+                <div style="flex:1"><b>${escapeHtml(r.name)}</b><div class="muted" style="font-size:11px">${r.pts} очков</div></div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    const fightBtn = this.root.querySelector('#war-fight');
+    if (fightBtn) fightBtn.onclick = () => this.startBattle('clanwar');
+    const chestBtn = this.root.querySelector('#war-chest');
+    if (chestBtn) chestBtn.onclick = () => {
+      if (p.chests.length >= 4) { this.toast('Очередь сундуков полна (макс. 4)'); return; }
+      p.chests.push(chestByType('gold'));
+      p.clanWar.points = Math.max(0, p.clanWar.points - 100);
+      accounts.saveProgress(p);
+      this.toast('🎁 Клановый сундук получен!');
+      this.showClanWar();
+    };
+  }
+
+  // ——— Профиль, уровень и достижения ———
+
+  showProfile() {
+    const p = this.progress;
+    const lv = levelFromXp(p.xp || 0);
+    const stats = statsFrom(p, { arenaIdx: ARENAS.indexOf(arenaFor((accounts.current() && accounts.current().trophies) || 0)), passTier: tierForXp((p.pass && p.pass.xp) || 0) });
+    this.setScreen(`
+      <div class="screen">
+        <div class="top-bar">
+          <button class="btn btn-ghost" id="back">←</button>
+          <div>
+            <div class="top-title">⭐ Профиль</div>
+            <div class="top-sub">Уровень игрока и достижения</div>
+          </div>
+        </div>
+        <div class="screen-scroll">
+          <div class="form-section" style="text-align:center">
+            <div style="font-size:52px">⭐</div>
+            <h3 style="margin:6px 0">Уровень ${lv.level}</h3>
+            <div class="war-bar"><div class="war-fill" style="width:${Math.min(100, Math.round((lv.into / lv.need) * 100))}%"></div></div>
+            <div class="muted" style="font-size:12px;margin-top:6px">Опыт: ${lv.into}/${lv.need} до следующего уровня • всего побед: ${p.wins || 0}</div>
+          </div>
+          <div class="form-section">
+            <h3>Достижения (${Object.keys(p.ach || {}).length}/${ACHIEVEMENTS.length})</h3>
+            ${ACHIEVEMENTS.map((a) => {
+              const got = !!(p.ach && p.ach[a.id]);
+              return `
+                <div class="ach-row ${got ? 'got' : ''}">
+                  <span style="font-size:22px;${got ? '' : 'filter:grayscale(1);opacity:0.5'}">${a.icon}</span>
+                  <div style="flex:1">
+                    <b>${escapeHtml(a.title)}</b>
+                    <div class="muted" style="font-size:11px">${escapeHtml(a.desc)} • +${a.gold} 💰</div>
+                  </div>
+                  <span>${got ? '✅' : '🔒'}</span>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+  }
+
+  // ——— Сезонный бой-пропуск (красивый!) ———
+
+  showPass() {
+    const p = this.progress;
+    const season = currentSeasonId();
+    if (!p.pass || p.pass.season !== season) {
+      p.pass = { season, xp: 0, premium: !!(p.pass && p.pass.premium), claimed: [], claimedPremium: [] };
+    }
+    const tier = tierForXp(p.pass.xp);
+    const into = p.pass.xp - tier * PASS_XP_PER_TIER;
+    const pct = Math.round((into / PASS_XP_PER_TIER) * 100);
+    const days = seasonDaysLeft();
+    this.setScreen(`
+      <div class="screen">
+        <div class="pass-hero">
+          <div class="pass-hero-glow"></div>
+          <button class="btn btn-ghost" id="back" style="position:relative;z-index:2">←</button>
+          <div class="pass-title">🎖 БОЙ-ПРОПУСК</div>
+          <div class="pass-season">Сезон «${escapeHtml(season)}» • ${days} дн. до конца</div>
+          <div class="pass-tier-badge">УРОВЕНЬ ${tier}</div>
+          <div class="pass-xp">
+            <div class="pass-xp-fill" style="width:${pct}%"><div class="pass-xp-shimmer"></div></div>
+          </div>
+          <div class="pass-xp-label">${into}/${PASS_XP_PER_TIER} XP до уровня ${Math.min(PASS_TIERS, tier + 1)}</div>
+          ${p.pass.premium
+            ? '<div class="pass-premium-on">👑 ПРЕМИУМ АКТИВЕН</div>'
+            : `<button class="btn pass-buy" id="pass-buy">👑 Купить премиум — ${PREMIUM_COST} 💰</button>`}
+        </div>
+        <div class="screen-scroll">
+          <div class="pass-track">
+            ${PASS_REWARDS.map((r) => {
+              const freeClaimed = p.pass.claimed.includes(r.tier);
+              const premClaimed = p.pass.claimedPremium.includes(r.tier);
+              const unlocked = r.tier <= tier;
+              return `
+                <div class="pass-cell ${unlocked ? 'unlocked' : ''}">
+                  <div class="pass-cell-num">${r.tier}</div>
+                  <div class="pass-reward ${freeClaimed ? 'claimed' : ''}" data-claim="${freeClaimed || !unlocked ? '' : `free:${r.tier}`}" title="${escapeHtml(r.free.label)}">
+                    <span class="pass-reward-icon">${r.free.icon}</span>
+                    <span class="pass-reward-label">${escapeHtml(r.free.label)}</span>
+                    ${freeClaimed ? '<span class="pass-check">✓</span>' : (unlocked ? '<span class="pass-glow">ЗАБРАТЬ</span>' : '')}
+                  </div>
+                  <div class="pass-reward prem ${premClaimed ? 'claimed' : ''} ${p.pass.premium ? '' : 'locked'}" data-claim="${premClaimed || !unlocked || !p.pass.premium ? '' : `premium:${r.tier}`}" title="${escapeHtml(r.premium.label)}">
+                    <span class="pass-reward-icon">${r.premium.icon}</span>
+                    <span class="pass-reward-label">${escapeHtml(r.premium.label)}</span>
+                    ${premClaimed ? '<span class="pass-check">✓</span>' : (unlocked && p.pass.premium ? '<span class="pass-glow">ЗАБРАТЬ</span>' : (!p.pass.premium ? '<span class="pass-lock">👑</span>' : ''))}
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+          <div class="muted mt12" style="font-size:11px;text-align:center">
+            Опыт капает за бои, турниры, кампанию и «Экзамен». Награды двух треков: бесплатный и премиум 👑.
+          </div>
+        </div>
+      </div>
+    `);
+    this.root.querySelector('#back').onclick = () => this.showMenu();
+    const buyBtn = this.root.querySelector('#pass-buy');
+    if (buyBtn) buyBtn.onclick = () => {
+      if (p.gold < PREMIUM_COST) { this.toast(`Нужно ${PREMIUM_COST} 💰`); return; }
+      p.gold -= PREMIUM_COST;
+      p.pass.premium = true;
+      accounts.saveProgress(p);
+      this.toast('👑 Премиум-трек открыт!');
+      this.showPass();
+    };
+    this.root.querySelectorAll('[data-claim]').forEach((el) => {
+      if (!el.dataset.claim) return;
+      el.onclick = () => this._claimPass(el.dataset.claim);
+    });
+  }
+
+  _claimPass(spec) {
+    const [track, tierStr] = spec.split(':');
+    const tierNum = parseInt(tierStr, 10);
+    const p = this.progress;
+    const claimedKey = track === 'premium' ? 'claimedPremium' : 'claimed';
+    if (p.pass[claimedKey].includes(tierNum)) return;
+    const r = passReward(tierNum, track);
+    if (!r) return;
+    let msg = '';
+    if (r.gold) { p.gold += r.gold; msg = `+${r.gold} 💰`; }
+    if (r.copies) {
+      for (const c of r.copies) {
+        addCardCopies(p, c.id, c.count);
+        const card = this.cards().find((x) => x.id === c.id);
+        msg += `${msg ? ', ' : ''}${escapeHtml(card ? card.name : c.id)} ×${c.count}`;
+      }
+    }
+    if (r.chest) {
+      const n = r.count || 1;
+      for (let i = 0; i < n; i++) if (p.chests.length < 4) p.chests.push(chestByType(r.chest));
+      msg += `${msg ? ', ' : ''}сундук ×${n}`;
+    }
+    p.pass[claimedKey].push(tierNum);
+    accounts.saveProgress(p);
+    this.toast(`🎉 Награда уровня ${tierNum}: ${msg}`);
+    this.showPass();
   }
 
   // ————— особый режим «Экзамен»: код на C++ и вопросы ЕГЭ за эликсир —————
@@ -2688,6 +3265,8 @@ export class App {
 
   _examQuizDone(subj, st) {
     const got = this._examReward(st.correct);
+    this.progress.quizCorrect = (this.progress.quizCorrect || 0) + st.correct;
+    accounts.saveProgress(this.progress);
     const pct = Math.round((st.correct / st.list.length) * 100);
     this.setScreen(`
       <div class="screen">
@@ -2909,6 +3488,8 @@ export class App {
       } else if (!this.battle.finished) {
         this.battle.update(dt);
         this.ai.update(dt);
+        if (this._bossCtl) this._bossCtl.update(dt);
+        if (this._commanders) for (const cm of this._commanders) cm.update(dt);
       }
       const events = this.battle.drainEvents();
       if (this.battleMode === 'online-host') {
@@ -3041,6 +3622,72 @@ export class App {
         p.tournament = null;
       }
     }
+
+    // ——— кампания, 2×2, турнирная лига, клановая война ———
+    let modeLine = '';
+    const won = res.winner === 'player';
+    if (this.battleMode === 'campaign' && this._campaignCtx && this._campaignCtx.mission) {
+      const m = this._campaignCtx.mission;
+      if (won) {
+        const crowns = (b.crowns && b.crowns.player) || 1;
+        const stars = Math.max(1, Math.min(3, crowns));
+        p.campaignDone[m.id] = Math.max(p.campaignDone[m.id] || 0, stars);
+        p.gold += m.rewards.gold;
+        modeLine += `<br>\u{1F4D6} «${escapeHtml(m.name)}» — победа! ${'★'.repeat(stars)}`;
+        modeLine += `<br>Золото: +${m.rewards.gold} \u{1F4B0}`;
+        for (const c of (m.rewards.copies || [])) {
+          addCardCopies(p, c.id, c.count);
+          const card = this.cards().find((x) => x.id === c.id);
+          modeLine += `<br>Копии: ${escapeHtml(card ? card.name : c.id)} \u00d7${c.count}`;
+        }
+        if (m.rewards.chest && p.chests.length < 4) {
+          p.chests.push(chestByType(m.rewards.chest));
+          modeLine += '<br>Сундук \u2014 \u0432 «\u041f\u0440\u043e\u043a\u0430\u0447\u043a\u0435»!';
+        }
+        if (m.boss) p.bossKills++;
+      } else {
+        modeLine += '<br>\u{1F4D6} \u041a\u0430\u043c\u043f\u0430\u043d\u0438\u044f: \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u0435 \u2014 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0435\u0449\u0451!';
+      }
+      this._campaignCtx = null;
+    }
+    if (this.battleMode === 'coop') {
+      if (won) { p.coopWins++; modeLine += '<br>\u{1F91D} 2\u00d72: \u043a\u043e\u043c\u0430\u043d\u0434\u043d\u0430\u044f \u043f\u043e\u0431\u0435\u0434\u0430!'; }
+    }
+    if (this.battleMode === 'clanwar') {
+      p.clanWar.fights++;
+      const pts = won ? 20 : 5;
+      p.clanWar.points += pts;
+      if (won) p.clanWarWins++;
+      modeLine += `<br>\u2694\uFE0F \u041a\u043b\u0430\u043d\u043e\u0432\u0430\u044f \u0432\u043e\u0439\u043d\u0430: +${pts} \u043e\u0447\u043a\u043e\u0432 \u043a\u043b\u0430\u043d\u0443`;
+    }
+    if (this.battleMode === 'cup') {
+      const cup = p.cup || (p.cup = { round: 0, wins: 0, active: true });
+      if (won) {
+        cup.wins++;
+        cup.round++;
+        if (cup.round >= 3) {
+          cup.active = false;
+          p.cupWins++;
+          p.gold += 400;
+          modeLine += '<br>\u{1F3C6} \u0422\u0423\u0420\u041d\u0418\u0420 \u0412\u042b\u0418\u0413\u0420\u0410\u041d! +400 \u{1F4B0}';
+        } else {
+          modeLine += `<br>\u{1F3C6} \u0422\u0443\u0440\u043d\u0438\u0440: \u0440\u0430\u0443\u043d\u0434 ${cup.wins}/3 \u043f\u0440\u043e\u0439\u0434\u0435\u043d!`;
+        }
+      } else {
+        cup.active = false;
+        modeLine += '<br>\u{1F3C6} \u0422\u0443\u0440\u043d\u0438\u0440: \u0432\u044b\u043b\u0435\u0442 \u2026 \u043d\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0437\u0430 \u0442\u043e\u0431\u043e\u0439!';
+      }
+    }
+    // опыт, уровень игрока, бой-пропуск, достижения
+    if (this.battleMode !== 'replay') {
+      if (won) p.wins = (p.wins || 0) + 1;
+      const modeXp = this.battleMode === 'campaign' ? 35 : this.battleMode === 'cup' ? 30 : this.battleMode === 'coop' ? 25 : 20;
+      modeLine += this._grantXp(won ? modeXp : Math.round(modeXp / 2));
+      modeLine += this._addPassXp(won ? 25 : 10);
+      modeLine += this._checkAchievements();
+      accounts.saveProgress(p);
+    }
+
     this._saveReplays();
 
     const title = res.winner === 'player' ? 'Победа!' : res.winner === 'draw' ? 'Ничья' : 'Поражение';
@@ -3054,7 +3701,7 @@ export class App {
       <div class="modal">
         <div class="result-big">${icon}</div>
         <h2>${title}</h2>
-        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}${trophyLine}${rewardLine}${tournamentLine}</p>
+        <p>Короны: ${b.crowns.player} : ${b.crowns.ai}<br>Всего побед: ${stats.wins} из ${stats.battles}${trophyLine}${rewardLine}${tournamentLine}${modeLine}</p>
         <button class="btn btn-primary" data-a="menu">В меню</button>
         ${this.battleMode === 'tournament' && tour
           ? '<button class="btn btn-blue" data-a="again">Следующий бой турнира</button>'
@@ -3096,6 +3743,8 @@ export class App {
   }
 
   _stopBattle() {
+    this._bossCtl = null;
+    this._commanders = null;
     if (this.battleRaf) cancelAnimationFrame(this.battleRaf);
     this.battleRaf = 0;
     this._unbindHandDrag();

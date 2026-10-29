@@ -7,6 +7,9 @@ import { ARENAS, arenaFor, nextArena } from '../src/data/arenas.js';
 import { runCpp } from '../src/code/cppRun.js';
 import { EASY_TASKS } from '../src/code/cppTasks.js';
 import { SUBJECTS, QUESTIONS } from '../src/code/quiz.js';
+import { MISSIONS, BOSSES } from '../src/data/campaign.js';
+import { PASS_REWARDS } from '../src/data/pass.js';
+import { ACHIEVEMENTS } from '../src/data/achievements.js';
 
 let failed = 0;
 function check(name, cond) {
@@ -256,6 +259,7 @@ check('уровень карты виден на картах (card-level)', uiS
 check('надпись арены над картой боя (battle-arena)', uiSrc.includes('battle-arena'));
 check('особый режим «Экзамен» в меню (m-exam)', uiSrc.includes('m-exam') && uiSrc.includes('showExam'));
 check('код и вопросы ЕГЭ подключены', typeof runCpp === 'function' && EASY_TASKS.length >= 8 && SUBJECTS.length === 12 && Object.keys(QUESTIONS).length === 12);
+check('крупное обновление подключено', MISSIONS.length === 20 && Object.keys(BOSSES).length === 6 && PASS_REWARDS.length === 20 && ACHIEVEMENTS.length === 18);
 
 if (failed) {
   console.error('\nПРОВАЛЕНО:', failed);

@@ -65,9 +65,40 @@ export function emptyProgress() {
     cardCopies: {},   // cardId -> сколько копий карты есть (для апгрейда)
     chests: [],       // очередь сундуков (макс. 4)
     tournament: null, // текущий турнир
+    cup: null,        // турнирная лига (сетка 3 раунда)
     seasonClaimed: null,
-    replays: []       // последние реплеи боёв (макс. 3)
+    replays: [],      // последние реплеи боёв (макс. 3)
+    // ——— крупное обновление ———
+    wins: 0,          // всего побед
+    level: 1,         // уровень игрока
+    xp: 0,            // опыт игрока
+    evo: {},          // cardId -> звёзды эволюции (0..3)
+    campaignDone: {}, // missionId -> звёзды (1..3)
+    bossKills: 0,
+    cupWins: 0,       // победы в турнирной лиге
+    coopWins: 0,      // победы в режиме 2×2
+    clanWarWins: 0,
+    clanWar: { points: 0, fights: 0 },
+    forges: 0,        // эволюций в кузнице
+    mythics: 0,       // мифических карт (3 звезды)
+    quizCorrect: 0,   // верных ответов в «Экзамене»
+    pass: { season: null, xp: 0, premium: false, claimed: [], claimedPremium: [] },
+    ach: {}           // id достижения -> true (получено)
   };
+}
+
+// уровень игрока: старт опыта уровня
+export const PLAYER_LEVEL_MAX = 50;
+export function xpForLevel(level) {
+  return 100 + (Math.max(1, level) - 1) * 75;
+}
+export function levelFromXp(xp) {
+  let lvl = 1, rest = Math.max(0, Math.floor(xp || 0));
+  while (lvl < PLAYER_LEVEL_MAX && rest >= xpForLevel(lvl)) {
+    rest -= xpForLevel(lvl);
+    lvl++;
+  }
+  return { level: lvl, into: rest, need: xpForLevel(lvl) };
 }
 
 export function normalizeProgress(p) {
@@ -90,8 +121,52 @@ export function normalizeProgress(p) {
   }
   out.chests = Array.isArray(p.chests) ? p.chests.filter((c) => c && typeof c === 'object').slice(0, 4) : [];
   out.tournament = p.tournament && typeof p.tournament === 'object' ? p.tournament : null;
+  out.cup = (p.cup && typeof p.cup === 'object')
+    ? { round: Math.max(0, Math.min(3, Math.floor(Number(p.cup.round) || 0))), wins: Math.max(0, Math.floor(Number(p.cup.wins) || 0)), active: !!p.cup.active }
+    : null;
   out.seasonClaimed = typeof p.seasonClaimed === 'string' ? p.seasonClaimed : null;
   out.replays = Array.isArray(p.replays) ? p.replays.filter((r) => r && Array.isArray(r.snaps)).slice(0, 3) : [];
+  // ——— крупное обновление ———
+  out.wins = Math.max(0, Math.floor(Number(p.wins) || 0));
+  out.level = Math.max(1, Math.min(PLAYER_LEVEL_MAX, Math.floor(Number(p.level) || 1)));
+  out.xp = Math.max(0, Math.floor(Number(p.xp) || 0));
+  out.bossKills = Math.max(0, Math.floor(Number(p.bossKills) || 0));
+  out.cupWins = Math.max(0, Math.floor(Number(p.cupWins) || 0));
+  out.coopWins = Math.max(0, Math.floor(Number(p.coopWins) || 0));
+  out.clanWarWins = Math.max(0, Math.floor(Number(p.clanWarWins) || 0));
+  out.forges = Math.max(0, Math.floor(Number(p.forges) || 0));
+  out.mythics = Math.max(0, Math.floor(Number(p.mythics) || 0));
+  out.quizCorrect = Math.max(0, Math.floor(Number(p.quizCorrect) || 0));
+  out.evo = {};
+  if (p.evo && typeof p.evo === 'object') {
+    for (const [id, s] of Object.entries(p.evo)) {
+      const n = Math.floor(Number(s));
+      if (n >= 1 && n <= 3) out.evo[id] = n;
+    }
+  }
+  out.campaignDone = {};
+  if (p.campaignDone && typeof p.campaignDone === 'object') {
+    for (const [id, s] of Object.entries(p.campaignDone)) {
+      const n = Math.floor(Number(s));
+      if (n >= 1 && n <= 3) out.campaignDone[id] = n;
+    }
+  }
+  out.clanWar = (p.clanWar && typeof p.clanWar === 'object')
+    ? { points: Math.max(0, Math.floor(Number(p.clanWar.points) || 0)), fights: Math.max(0, Math.floor(Number(p.clanWar.fights) || 0)) }
+    : { points: 0, fights: 0 };
+  out.pass = (p.pass && typeof p.pass === 'object')
+    ? {
+        season: typeof p.pass.season === 'string' ? p.pass.season : null,
+        xp: Math.max(0, Math.floor(Number(p.pass.xp) || 0)),
+        premium: !!p.pass.premium,
+        claimed: Array.isArray(p.pass.claimed) ? p.pass.claimed.map(Number).filter((n) => n >= 1 && n <= 20) : [],
+        claimedPremium: Array.isArray(p.pass.claimedPremium) ? p.pass.claimedPremium.map(Number).filter((n) => n >= 1 && n <= 20) : []
+      }
+    : { season: null, xp: 0, premium: false, claimed: [], claimedPremium: [] };
+  out.ach = {};
+  if (p.ach && typeof p.ach === 'object') {
+    for (const [id, v] of Object.entries(p.ach)) if (v) out.ach[id] = true;
+  }
   return out;
 }
 
@@ -168,6 +243,12 @@ export function rollChest(win) {
   const r = Math.random();
   const idx = win ? (r < 0.55 ? 0 : r < 0.85 ? 1 : r < 0.97 ? 2 : 3) : (r < 0.8 ? 0 : 1);
   return { ...CHEST_TYPES[idx], id: Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36) };
+}
+
+// сундук конкретного типа (для наград кампании и пропуска)
+export function chestByType(type) {
+  const t = CHEST_TYPES.find((c) => c.type === type) || CHEST_TYPES[0];
+  return { ...t, id: Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36) };
 }
 
 const RARITY_WEIGHT = { common: 55, rare: 27, epic: 13, legendary: 5 };
