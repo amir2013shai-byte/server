@@ -1689,6 +1689,11 @@ export class App {
         draft.abilities.push(a);
         render();
       };
+      // при смене типа карты форма должна перерисоваться под новый тип
+      const typeSel = this.root.querySelector('#f-type');
+      if (typeSel) {
+        typeSel.onchange = () => { collect(); render(); };
+      }
       this.root.querySelectorAll('[data-abdel]').forEach((b) => {
         b.onclick = () => {
           collect();
@@ -1725,6 +1730,15 @@ export class App {
             targetsAir: true,
             targetsGround: true
           };
+        }
+        // чистим поля, не относящиеся к типу карты, иначе при смене типа
+        // остаются старые настройки юнита/здания/заклинания и ломают карту
+        if (draft.type === 'spell') {
+          draft.building = null;
+          draft.spell = draft.spell || { radius: 2.5, effect: 'damage', damage: 200, heal: 0, duration: 0, targetsAir: true, targetsGround: true };
+        } else {
+          draft.spell = null;
+          if (draft.type !== 'building') draft.building = null;
         }
         // абилки
         this.root.querySelectorAll('[data-ab]').forEach((rowEl) => {
