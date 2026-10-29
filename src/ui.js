@@ -1,6 +1,6 @@
 // UI приложения: меню, коллекция, конструктор колоды, редактор карт, бой, настройки.
 import { storage } from './storage.js';
-import { ALL_CARDS, COLLECTION_IDS, RARITY, getCard, withCustom } from './data/cards.js';
+import { ALL_CARDS, COLLECTION_IDS, RARITY, getCard, withCustom, autoTags, TAG_LABELS } from './data/cards.js';
 import { cardBalance, DEFAULT_BALANCE } from './data/balance.js';
 import { accounts } from './accounts.js';
 import { encodeCard, decodeCard, copyText, sanitizeArt } from './share.js';
@@ -1273,7 +1273,7 @@ export class App {
         (c.spell?.damage ? ` • Урон: <b>${c.spell.damage}</b>` : '') +
         (c.spell?.heal ? ` • Лечение: <b>${c.spell.heal}</b>` : '')
       : `HP: <b>${c.hp}</b> • Урон: <b>${c.damage}</b> • Скор. атаки: <b>${c.hitSpeed}с</b><br>
-         Дальность: <b>${c.range}</b> • Скорость: <b>${c.speed || 0}</b> • Цели: <b>${c.targets === 'both' ? 'земля+воздух' : 'земля'}</b>${c.flying ? ' • <b>летает</b>' : ''}${c.buildingOnly ? ' • <b>только здания</b>' : ''}${c.splash ? ` • Урон по площади: <b>${c.splash}</b>` : ''}`;
+         Дальность: <b>${c.range}</b> • Скорость: <b>${c.speed || 0}</b> • Цели: <b>${c.targets === 'both' ? 'земля+воздух' : 'земля'}</b>${c.flying ? ' • <b>летает</b>' : ''}${c.buildingOnly ? ' • <b>только здания</b>' : ''}${c.splash ? ` • Урон по площади: <b>${c.splash}</b>` : ''}${c.tags?.length ? ` • <b>Теги:</b> ${c.tags.map(t => '<span class="ability-tag">' + (TAG_LABELS[t] || t) + '</span>').join(' ')}` : ''}`;
 
     const ov = document.createElement('div');
     ov.className = 'overlay';
@@ -1595,6 +1595,10 @@ export class App {
                 <div class="form-field"><label>Только здания</label>
                   <select class="input" id="f-bo"><option value="0" ${!draft.buildingOnly ? 'selected' : ''}>Нет</option><option value="1" ${draft.buildingOnly ? 'selected' : ''}>Да</option></select>
                 </div>
+                <div class="form-field"><label>Теги (через запятую)</label>
+                  <input class="input" id="f-tags" value="${(draft.tags || []).join(', ')}" placeholder="наземное, полётное, танк, дамагер, вин-кондишон, здание, заклинание, герой, рой, по площади, призывает">
+                  <div class="muted" style="font-size:11px">Автоподбор: наземное/полётное, танк, дамагер, вин-кондишон, рой, по площади, призывает, здание, заклинание, герой</div>
+                </div>
                 ${draft.type === 'building' ? `<div class="form-field"><label>Время жизни (сек)</label><input class="input" type="number" id="f-life" value="${draft.building?.lifetime ?? 30}"></div>` : ''}
                 <div class="form-field"><label>Герой (открывается фрагментами)</label>
                   <select class="input" id="f-hero"><option value="0" ${!draft.hero ? 'selected' : ''}>Нет</option><option value="1" ${draft.hero ? 'selected' : ''}>Да</option></select>
@@ -1722,6 +1726,9 @@ export class App {
         if (q('#f-targets')) draft.targets = q('#f-targets').value;
         if (q('#f-flying')) draft.flying = q('#f-flying').value === '1';
         if (q('#f-bo')) draft.buildingOnly = q('#f-bo').value === '1';
+        // теги: ручной ввод или автогенерация по свойствам карты
+        const manualTags = q('#f-tags')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || [];
+        draft.tags = manualTags.length > 0 ? manualTags : autoTags(draft);
         if (q('#f-life')) draft.building = { lifetime: clampNum(q('#f-life').value, 5, 120, 30) };
         if (q('#f-hero')) {
           draft.hero = q('#f-hero').value === '1';

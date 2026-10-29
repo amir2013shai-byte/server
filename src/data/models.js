@@ -264,6 +264,35 @@ export function bowArm(color = '#8a5a2b') {
   ];
 }
 
+// ——— Фабрика уникальных моделей на карту ———
+// Каждая карта получает свой уникальный набор примитивов на основе id карты.
+export function cardModel(id, baseModelFn, ...baseArgs) {
+  const base = baseModelFn(...baseArgs);
+  const parts = [...base.parts];
+  // Детерминированные вариации по id карты: цветовые сдвиги и уникальные детали
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+  const r1 = Math.abs(hash) % 100 / 100;
+  const r2 = Math.abs((hash * 31) % 100) / 100;
+  const r3 = Math.abs((hash * 71) % 100) / 100;
+
+  // Добавляем уникальный акцентный элемент в зависимости от id
+  const accentHue = Math.floor(r1 * 360);
+  const accentColor = `hsl(${accentHue}, 70%, 60%)`;
+
+  // Каждая карта получает свой уникальный «значок» на груди
+  if (r3 > 0.5) {
+    parts.push(P('sphere', [0, 1.1, 0.35], [0.1, 0.1, 0.1], accentColor, { emissive: accentColor }));
+  }
+
+  // Уникальные глаза
+  const eyeColor = r2 > 0.5 ? '#ff4500' : '#00ff88';
+  parts.push(P('sphere', [-0.07, 1.4, 0.28], [0.04, 0.04, 0.04], eyeColor, { emissive: eyeColor }));
+  parts.push(P('sphere', [0.07, 1.4, 0.28], [0.04, 0.04, 0.04], eyeColor, { emissive: eyeColor }));
+
+  return { parts };
+}
+
 // ——— Универсальный зверь (кабан, волк): шерсть, клыки, когти, хвост ———
 export function beast(body = '#8a5a3b', belly = '#c49a6c', accent = '#5b3a22') {
   return {
