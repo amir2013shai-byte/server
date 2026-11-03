@@ -1,0 +1,11 @@
+# Build output
+/build/
+/.tools/
+/local.properties
+*.iml
+.gradle/
+.idea/
+*.hprof
+.DS_Store
+
+# Signing secrets are intentionally not committed; the demo keystore is public in android/keystore

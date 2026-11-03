@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#8C1D18</color>
+    <color name="brand_dark">#5E1310</color>
+    <color name="gold">#D9A441</color>
+    <color name="gold_dark">#A87A24</color>
+    <color name="ic_launcher_background">#2A1E14</color>
+
+    <color name="l_bg">#F4EFE5</color>
+    <color name="l_surface">#FFFCF6</color>
+    <color name="l_surface_alt">#EDE5D6</color>
+    <color name="l_text">#221A11</color>
+    <color name="l_text_dim">#6F6354</color>
+    <color name="l_divider">#DFD4C1</color>
+    <color name="l_topbar">#7E1A15</color>
+    <color name="l_topbar_text">#F7EBD2</color>
+    <color name="l_nav">#FFFCF6</color>
+
+    <color name="d_bg">#12100D</color>
+    <color name="d_surface">#1D1913</color>
+    <color name="d_surface_alt">#2A231A</color>
+    <color name="d_text">#EDE4D4</color>
+    <color name="d_text_dim">#A99B85</color>
+    <color name="d_divider">#342C21</color>
+    <color name="d_topbar">#241C15</color>
+    <color name="d_topbar_text">#F1E3C6</color>
+    <color name="d_nav">#1D1913</color>
+    <color name="d_gold">#E3BC66</color>
+    <color name="d_brand">#C03B31</color>
+</resources>

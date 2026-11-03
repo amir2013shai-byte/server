@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Dnd" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/brand</item>
+        <item name="android:colorPrimaryDark">@color/brand_dark</item>
+        <item name="android:colorAccent">@color/gold_dark</item>
+        <item name="android:windowBackground">@color/l_bg</item>
+        <item name="android:statusBarColor">@color/brand_dark</item>
+        <item name="android:navigationBarColor">@color/l_nav</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="dndBg">@color/l_bg</item>
+        <item name="dndSurface">@color/l_surface</item>
+        <item name="dndSurfaceAlt">@color/l_surface_alt</item>
+        <item name="dndText">@color/l_text</item>
+        <item name="dndTextDim">@color/l_text_dim</item>
+        <item name="dndDivider">@color/l_divider</item>
+        <item name="dndTopbar">@color/l_topbar</item>
+        <item name="dndTopbarText">@color/l_topbar_text</item>
+        <item name="dndNav">@color/l_nav</item>
+        <item name="dndAccent">@color/gold_dark</item>
+        <item name="dndBrand">@color/brand</item>
+    </style>
+
+    <style name="Theme.Dnd.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/d_brand</item>
+        <item name="android:colorPrimaryDark">#0C0A08</item>
+        <item name="android:colorAccent">@color/d_gold</item>
+        <item name="android:windowBackground">@color/d_bg</item>
+        <item name="android:statusBarColor">#0C0A08</item>
+        <item name="android:navigationBarColor">@color/d_nav</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="dndBg">@color/d_bg</item>
+        <item name="dndSurface">@color/d_surface</item>
+        <item name="dndSurfaceAlt">@color/d_surface_alt</item>
+        <item name="dndText">@color/d_text</item>
+        <item name="dndTextDim">@color/d_text_dim</item>
+        <item name="dndDivider">@color/d_divider</item>
+        <item name="dndTopbar">@color/d_topbar</item>
+        <item name="dndTopbarText">@color/d_topbar_text</item>
+        <item name="dndNav">@color/d_nav</item>
+        <item name="dndAccent">@color/d_gold</item>
+        <item name="dndBrand">@color/d_brand</item>
+    </style>
+
+    <style name="Theme.Dnd.Splash" parent="Theme.Dnd">
+        <item name="android:windowBackground">@drawable/launch_bg</item>
+    </style>
+</resources>

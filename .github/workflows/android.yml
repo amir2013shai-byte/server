@@ -1,0 +1,58 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build D&D.su reader APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build signed APK
+        env:
+          VERSION_NAME: "1.0.${{ github.run_number }}"
+          VERSION_CODE: "${{ github.run_number }}"
+          OUT: "${{ github.workspace }}/release/dndsu-reader.apk"
+        run: bash scripts/build_apk.sh
+
+      - name: APK info
+        run: |
+          ls -la release
+          sha256sum release/*.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dndsu-reader-apk
+          path: |
+            release/dndsu-reader.apk
+            release/dndsu-reader.apk.md5
+
+      - name: Publish APK to the "latest" release
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest \
+              --title "D&D.su Reader — APK" \
+              --notes "Автоматическая сборка APK (ветка ${GITHUB_REF_NAME}, коммит ${GITHUB_SHA:0:7})."
+          gh release upload latest release/dndsu-reader.apk release/dndsu-reader.apk.md5 --clobber

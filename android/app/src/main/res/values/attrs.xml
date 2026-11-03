@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="dndBg" format="color" />
+    <attr name="dndSurface" format="color" />
+    <attr name="dndSurfaceAlt" format="color" />
+    <attr name="dndText" format="color" />
+    <attr name="dndTextDim" format="color" />
+    <attr name="dndDivider" format="color" />
+    <attr name="dndTopbar" format="color" />
+    <attr name="dndTopbarText" format="color" />
+    <attr name="dndNav" format="color" />
+    <attr name="dndAccent" format="color" />
+    <attr name="dndBrand" format="color" />
+</resources>
