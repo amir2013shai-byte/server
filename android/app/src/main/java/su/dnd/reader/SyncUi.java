@@ -65,7 +65,7 @@ public final class SyncUi {
             }
 
             @Override
-            public void onFinished(int saved, int failed, String error) {
+            public void onFinished(int saved, int failed, int skipped, String error) {
                 activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 if (active == downloader) active = null;
                 if (progress.isShowing()) progress.dismiss();
@@ -74,6 +74,8 @@ public final class SyncUi {
                     text = "Сохранено в офлайн-библиотеку";
                 } else if (error != null) {
                     text = error;
+                } else if (skipped > 0) {
+                    text = "Страница не найдена на dnd.su";
                 } else {
                     text = "Страница не сохранилась";
                 }
@@ -221,7 +223,7 @@ public final class SyncUi {
             }
 
             @Override
-            public void onFinished(int saved, int failed, String error) {
+            public void onFinished(int saved, int failed, int skipped, String error) {
                 activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 if (active == downloader) active = null;
                 if (progress.isShowing()) progress.dismiss();
@@ -231,9 +233,13 @@ public final class SyncUi {
                 } else if (error != null) {
                     text = error + (saved > 0 ? ". Сохранено страниц: " + saved : "");
                 } else if (saved == 0) {
-                    text = "Новых страниц не найдено — раздел уже сохранён";
+                    text = skipped > 0
+                            ? "Новых страниц не найдено: сайт отдал только ошибки 404"
+                            : "Новых страниц не найдено — раздел уже сохранён";
                 } else {
-                    text = "Готово: сохранено страниц — " + saved + (failed > 0 ? ", ошибок — " + failed : "");
+                    text = "Готово: сохранено страниц — " + saved
+                            + (failed > 0 ? ", ошибок — " + failed : "")
+                            + (skipped > 0 ? ", пропущено 404 — " + skipped : "");
                 }
                 Ui.toast(activity, text);
                 if (onDone != null) onDone.run();

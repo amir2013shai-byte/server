@@ -98,6 +98,14 @@ public final class Prefs {
         sp(c).edit().putString("last_url", url).apply();
     }
 
+    public static String diceHistory(Context c) {
+        return sp(c).getString("dice_history", "[]");
+    }
+
+    public static void setDiceHistory(Context c, String json) {
+        sp(c).edit().putString("dice_history", json == null ? "[]" : json).apply();
+    }
+
     public static boolean firstRun(Context c) {
         return sp(c).getBoolean("first_run", true);
     }

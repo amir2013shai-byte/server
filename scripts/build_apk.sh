@@ -15,6 +15,12 @@ KS_PASS="${KS_PASS:-dndsu2024}"
 KEY_ALIAS="${KEY_ALIAS:-dndsu}"
 OUT="${OUT:-$ROOT/release/dndsu-reader-$VERSION_NAME.apk}"
 
+# Prefer the portable JRE that lives next to the other build tools.
+if [ -z "${JAVA_HOME:-}" ] && [ -x "$ROOT/.tools/jre/bin/java" ]; then
+  export JAVA_HOME="$ROOT/.tools/jre"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+
 if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
   JAVA="$JAVA_HOME/bin/java"
 else

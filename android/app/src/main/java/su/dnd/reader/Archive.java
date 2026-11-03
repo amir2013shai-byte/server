@@ -70,12 +70,39 @@ public final class Archive {
         }
     }
 
+    private static final String[] TRACKING = {"ysclid", "yclid", "utm_source", "utm_medium",
+            "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "from", "_openstat",
+            "ref", "ref_src"};
+
     /** Normalizes a URL so the same page always maps to the same key. */
     public static String normalize(String url) {
         if (url == null) return "";
         String u = url;
         int hash = u.indexOf('#');
         if (hash >= 0) u = u.substring(0, hash);
+        int q = u.indexOf('?');
+        if (q >= 0) {
+            String base = u.substring(0, q);
+            String[] params = u.substring(q + 1).split("&");
+            StringBuilder kept = new StringBuilder();
+            for (String param : params) {
+                if (param.isEmpty()) continue;
+                String name = param;
+                int eq = param.indexOf('=');
+                if (eq >= 0) name = param.substring(0, eq);
+                boolean drop = false;
+                for (String t : TRACKING) {
+                    if (t.equalsIgnoreCase(name)) {
+                        drop = true;
+                        break;
+                    }
+                }
+                if (drop) continue;
+                if (kept.length() > 0) kept.append('&');
+                kept.append(param);
+            }
+            u = kept.length() == 0 ? base : base + "?" + kept;
+        }
         if (u.endsWith("/") && u.length() > "https://x/".length()) u = u.substring(0, u.length() - 1);
         return u;
     }
@@ -137,6 +164,7 @@ public final class Archive {
             } catch (Exception e) {
                 return;
             }
+            writeText(c, hash, HtmlText.fromHtml(html));
             JSONObject index = readIndex(c);
             JSONObject o = new JSONObject();
             try {
@@ -256,6 +284,117 @@ public final class Archive {
         } catch (Exception ignored) {
         }
         return map.toString();
+    }
+
+    private static File textFile(Context c, String hash) {
+        return new File(pagesDir(c), hash + ".txt");
+    }
+
+    private static void writeText(Context c, String hash, String text) {
+        try (OutputStream out = new FileOutputStream(textFile(c, hash))) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Plain text of a saved page. Older pages are converted on the fly and cached. */
+    public static String text(Context c, Page page) {
+        if (page == null) return "";
+        File txt = textFile(c, page.hash);
+        if (txt.isFile()) {
+            try (InputStream in = new FileInputStream(txt)) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+            }
+        }
+        String html = read(c, page.url);
+        if (html == null) return "";
+        String text = HtmlText.fromHtml(html);
+        writeText(c, page.hash, text);
+        return text;
+    }
+
+    public static final class Hit {
+        public final Page page;
+        public final String snippet;
+        public final int count;
+
+        Hit(Page page, String snippet, int count) {
+            this.page = page;
+            this.snippet = snippet;
+            this.count = count;
+        }
+    }
+
+    /** Full-text search over the saved pages. Runs on a background thread. */
+    public static List<Hit> search(Context c, String query, int limit) {
+        List<Hit> hits = new ArrayList<>();
+        String q = HtmlText.fold(query == null ? "" : query.trim());
+        if (q.length() < 2) return hits;
+        for (Page page : pages(c)) {
+            if (hits.size() >= limit) break;
+            String text = text(c, page);
+            if (text.isEmpty()) continue;
+            String folded = HtmlText.fold(text);
+            int count = 0;
+            int first = -1;
+            int from = 0;
+            while (true) {
+                int pos = folded.indexOf(q, from);
+                if (pos < 0) break;
+                if (first < 0) first = pos;
+                count++;
+                if (count > 200) break;
+                from = pos + q.length();
+            }
+            if (count == 0) continue;
+            hits.add(new Hit(page, snippet(text, first, q.length()), count));
+        }
+        Collections.sort(hits, new Comparator<Hit>() {
+            @Override
+            public int compare(Hit a, Hit b) {
+                if (a.count != b.count) return b.count - a.count;
+                return Long.compare(b.page.savedAt, a.page.savedAt);
+            }
+        });
+        return hits;
+    }
+
+    private static String snippet(String text, int pos, int length) {
+        if (pos < 0) return "";
+        int start = Math.max(0, pos - 60);
+        int end = Math.min(text.length(), pos + length + 110);
+        String part = text.substring(start, end).replace('\n', ' ');
+        part = part.replaceAll("\\s+", " ").trim();
+        return (start > 0 ? "…" : "") + part + (end < text.length() ? "…" : "");
+    }
+
+    /** Removes index entries whose page file is gone (e.g. after an interrupted save). */
+    public static int pruneBroken(Context c) {
+        synchronized (LOCK) {
+            JSONObject index = readIndex(c);
+            List<String> broken = new ArrayList<>();
+            Iterator<String> keys = index.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                JSONObject o = index.optJSONObject(key);
+                String hash = o == null ? hash(key) : o.optString("h", hash(key));
+                File html = new File(pagesDir(c), hash + ".html");
+                if (!html.isFile() || html.length() < 100) broken.add(key);
+            }
+            for (String key : broken) index.remove(key);
+            if (!broken.isEmpty()) writeIndex(c, index);
+            return broken.size();
+        }
+    }
+
+    /** True when the saved copy of the page exists on disk. */
+    public static boolean fileExists(Context c, Page page) {
+        return page != null && new File(pagesDir(c), page.hash + ".html").isFile();
     }
 
     /** Human readable category label for a page. */

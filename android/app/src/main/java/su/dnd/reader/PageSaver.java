@@ -78,20 +78,23 @@ public final class PageSaver {
             webView.evaluateJavascript(Js.get(webView.getContext(), "meta"), value -> {
                 String url = null;
                 String title = null;
+                boolean notFound = false;
                 try {
                     org.json.JSONObject o = new org.json.JSONObject(value);
                     url = o.optString("url", null);
                     title = o.optString("title", null);
+                    notFound = o.optBoolean("notFound", false);
                 } catch (Exception ignored) {
                 }
-                cb.onMeta(url, title);
+                cb.onMeta(url, title, notFound);
             });
         } catch (Exception e) {
-            cb.onMeta(null, null);
+            cb.onMeta(null, null, false);
         }
     }
 
     public interface MetaCallback {
-        void onMeta(String url, String title);
+        /** notFound is true for site error pages (dnd.su/404/), they must not be archived. */
+        void onMeta(String url, String title, boolean notFound);
     }
 }

@@ -36,6 +36,7 @@ public class MainActivity extends android.app.Activity {
     public static final String EXTRA_ARCHIVE = "archive_url";
     public static final String EXTRA_SOURCE = "source_url";
     public static final String EXTRA_OPEN = "open_url";
+    public static final String EXTRA_QUERY = "highlight_query";
 
     private static final String HOME = "https://dnd.su/";
 
@@ -63,6 +64,8 @@ public class MainActivity extends android.app.Activity {
     private long lastBackPress;
     private String darkAppliedFor;
     private String readerAppliedFor;
+    private String pendingHighlight;
+    private String highlightAppliedFor;
     private android.webkit.ValueCallback<Uri[]> fileCallback;
     private static final int REQ_FILE = 4311;
 
@@ -119,7 +122,8 @@ public class MainActivity extends android.app.Activity {
                             + "• Кнопка-закладка вверху сохраняет открытую страницу вместе с изображениями — её можно читать без интернета.\n\n"
                             + "• Меню → «Поиск в Яндексе» ищет по всему домену dnd.su и показывает найденные страницы ссылками с заголовками.\n\n"
                             + "• Меню → «Скачать раздел» загружает весь раздел (например, «Заклинания») в офлайн-библиотеку.\n\n"
-                            + "• Сохранённые страницы доступны на вкладке «Офлайн».\n\n"
+                            + "• Сохранённые страницы доступны на вкладке «Офлайн»; поиск там ищет и по тексту страниц, а не только по названиям.\n\n"
+                            + "• Меню → «Кубики и броски» — d20 с преимуществом и помехой, модификаторы и история бросков.\n\n"
                             + "Контент принадлежит авторам сайта dnd.su.")
                     .setPositiveButton("Понятно", null)
                     .show();
@@ -202,6 +206,13 @@ public class MainActivity extends android.app.Activity {
 
     private boolean handleIntent(Intent intent) {
         if (intent == null) return false;
+        String query = intent.getStringExtra(EXTRA_QUERY);
+        if (query != null && query.trim().length() > 1) {
+            pendingHighlight = query.trim();
+            highlightAppliedFor = null;
+        } else if (query == null) {
+            pendingHighlight = null;
+        }
         String archive = intent.getStringExtra(EXTRA_ARCHIVE);
         String source = intent.getStringExtra(EXTRA_SOURCE);
         if (archive != null) {
@@ -284,6 +295,7 @@ public class MainActivity extends android.app.Activity {
             } else if (!url.startsWith("data:") && !WebUtils.isYandex(url)) {
                 applyPagePreferences(url);
             }
+            applyHighlight(url);
             updateMeta();
             updateNav();
             updateOfflineBar();
@@ -319,6 +331,21 @@ public class MainActivity extends android.app.Activity {
         return url;
     }
 
+    /** Highlights the search query inside the opened page (used by the offline full-text search). */
+    private void applyHighlight(String url) {
+        if (pendingHighlight == null || pendingHighlight.length() < 2) return;
+        if (web == null || url == null) return;
+        if (url.equals(highlightAppliedFor)) return;
+        highlightAppliedFor = url;
+        final String query = pendingHighlight;
+        pendingHighlight = null;
+        web.evaluateJavascript(Js.highlight(this, query), value -> {
+            if (value != null && value.contains("found:0")) {
+                Ui.toast(this, "На этой странице совпадений не найдено");
+            }
+        });
+    }
+
     private void applyPagePreferences(String url) {
         if (Prefs.darkPages(this) && !url.equals(darkAppliedFor)) {
             darkAppliedFor = url;
@@ -339,9 +366,7 @@ public class MainActivity extends android.app.Activity {
         java.io.File file = Archive.fileForPath(this, path);
         if (file == null) {
             return new WebResourceResponse("text/html", "UTF-8",
-                    new java.io.ByteArrayInputStream(("<html><body style=\"font-family:sans-serif;padding:24px\">"
-                            + "<h3>Страница не найдена в офлайн-архиве</h3>"
-                            + "<p><a href=\"dndapp://library\">Открыть библиотеку</a></p></body></html>")
+                    new java.io.ByteArrayInputStream(missingCopyPage(path)
                             .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         }
         try {
@@ -355,6 +380,51 @@ public class MainActivity extends android.app.Activity {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Shown when an archive file is missing: explain, offer the online page and the library. */
+    private String missingCopyPage(String path) {
+        String source = null;
+        try {
+            String name = path == null ? "" : path.replaceFirst("^/archive/", "").replaceFirst("\\.html$", "");
+            for (Archive.Page p : Archive.pages(this)) {
+                if (p.hash.equals(name)) {
+                    source = p.url;
+                    break;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        // the entry is broken: drop it so the library does not offer a dead page again
+        try {
+            Archive.pruneBroken(this);
+        } catch (Exception ignored) {
+        }
+        boolean online = WebUtils.isOnline(this);
+        boolean dnd = source != null && WebUtils.isDnd(source);
+        String safeTitle = source == null ? "" : source;
+        String js = (online && dnd)
+                ? "<script>setTimeout(function(){location.replace('dndapp://open?url='"
+                + "+encodeURIComponent(" + jsString(safeTitle) + "));},900);</script>"
+                : "";
+        return "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                + "<style>body{font-family:sans-serif;padding:24px;background:#1b1714;color:#f3e9d8}"
+                + "a.btn{display:inline-block;margin:8px 8px 0 0;padding:10px 16px;border-radius:10px;"
+                + "background:#b3402f;color:#fff;text-decoration:none;font-size:14px}"
+                + "p{color:#c8bba8;font-size:14px;line-height:1.5}</style></head><body>"
+                + "<h3 style=\"margin:0 0 8px\">Копия страницы не найдена</h3>"
+                + "<p>Файл офлайн-копии отсутствует — возможно, сохранение прервалось или страница была удалена. "
+                + (online ? "Открываем страницу онлайн…" : "Включите интернет, чтобы открыть её онлайн.")
+                + "</p>"
+                + (dnd ? "<a class=\"btn\" href=\"dndapp://open?url=" + Uri.encode(safeTitle)
+                + "\">Открыть онлайн</a>" : "")
+                + "<a class=\"btn\" href=\"dndapp://library\">Библиотека</a>"
+                + "<p style=\"opacity:0.55;font-size:12px\">" + (source == null ? "" : Uri.encode(safeTitle)) + "</p>"
+                + js + "</body></html>";
+    }
+
+    private static String jsString(String value) {
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'";
     }
 
     private boolean handleUrl(String url) {
@@ -371,6 +441,11 @@ public class MainActivity extends android.app.Activity {
                 saveCurrentPage();
             } else if (what.equals("home")) {
                 load(HOME);
+            } else if (what.equals("open")) {
+                String target = uri.getQueryParameter("url");
+                if (target != null && (target.startsWith("http://") || target.startsWith("https://"))) {
+                    load(target);
+                }
             }
             return true;
         }
@@ -583,7 +658,12 @@ public class MainActivity extends android.app.Activity {
                 "Подготавливаем страницу и изображения…", true, () -> saveBridge.disarm());
         dialog.show();
         restoreReaderDom();
-        PageSaver.readMeta(web, (metaUrl, title) -> {
+        PageSaver.readMeta(web, (metaUrl, title, notFound) -> {
+            if (notFound) {
+                if (dialog.isShowing()) dialog.dismiss();
+                Ui.toast(this, "Сайт не нашёл эту страницу (404) — сохранять нечего");
+                return;
+            }
             final String finalUrl = metaUrl != null && WebUtils.isDnd(metaUrl) ? metaUrl : url;
             final String finalTitle = (title == null || title.trim().isEmpty()) ? pageTitle : title.trim();
             PageSaver.save(this, web, saveBridge, finalUrl, finalTitle,
@@ -646,6 +726,11 @@ public class MainActivity extends android.app.Activity {
                 "Заголовки и ссылки со всего домена dnd.su", v -> {
                     dismiss(holder);
                     SearchUi.show(this, syncHost, url -> load(url));
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_dice, "Кубики и броски",
+                "d20, преимущество, модификаторы, история", v -> {
+                    dismiss(holder);
+                    startActivity(new Intent(this, DiceActivity.class));
                 }));
         box.addView(Ui.menuRow(this, R.drawable.ic_download, "Скачать раздел…",
                 "Сохранить страницы для чтения без интернета", v -> {

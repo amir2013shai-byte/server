@@ -25,7 +25,8 @@ public class Downloader {
     public interface Listener {
         void onProgress(int done, int total, String message);
 
-        void onFinished(int saved, int failed, String error);
+        /** skipped counts site error pages (404) that were not saved. */
+        void onFinished(int saved, int failed, int skipped, String error);
     }
 
     private interface LoadCb {
@@ -46,6 +47,7 @@ public class Downloader {
     private int total;
     private int done;
     private int failed;
+    private int skipped;
     private int index;
     private List<String> queue = new ArrayList<>();
     private boolean cancelled;
@@ -113,6 +115,7 @@ public class Downloader {
         this.total = 1;
         this.done = 0;
         this.failed = 0;
+        this.skipped = 0;
         this.index = 0;
         this.queue = new ArrayList<>();
         this.cancelled = false;
@@ -146,6 +149,7 @@ public class Downloader {
         this.total = 1;
         this.done = 0;
         this.failed = 0;
+        this.skipped = 0;
         this.index = 0;
         this.queue = new ArrayList<>();
         this.cancelled = false;
@@ -160,7 +164,12 @@ public class Downloader {
                 finish("Нет соединения с dnd.su. Проверьте подключение к интернету.");
                 return;
             }
-            PageSaver.readMeta(web, (metaUrl, title) -> {
+            PageSaver.readMeta(web, (metaUrl, title, notFound) -> {
+                if (notFound) {
+                    skipped++;
+                    finish("Страница не найдена на dnd.su (404)");
+                    return;
+                }
                 final String finalUrl = metaUrl != null && WebUtils.isDnd(metaUrl) ? metaUrl : url;
                 final String finalTitle = (title == null || title.trim().isEmpty())
                         ? titleFromUrl(finalUrl) : title.trim();
@@ -185,7 +194,12 @@ public class Downloader {
 
     private void saveIndex() {
         progress("Сохраняем страницу раздела…");
-        PageSaver.readMeta(web, (url, title) -> {
+        PageSaver.readMeta(web, (url, title, notFound) -> {
+            if (notFound) {
+                skipped++;
+                finish("Раздел не найден на dnd.su (404). Обновите приложение — возможно, раздел переехал.");
+                return;
+            }
             final String finalTitle = (title == null || title.trim().isEmpty()) ? cat.title : title.trim();
             PageSaver.save(activity, web, bridge, cat.url, finalTitle, cat.key, new PageSaver.Result() {
                 @Override
@@ -322,7 +336,7 @@ public class Downloader {
             return;
         }
         final String url = queue.get(index);
-        progress("Открываем " + (done + failed + 1) + " из " + total + "…");
+        progress("Открываем " + (done + failed + skipped + 1) + " из " + total + "…");
         load(url, ok -> {
             if (!ok) {
                 failed++;
@@ -335,14 +349,24 @@ public class Downloader {
     }
 
     private void saveDetail(final String url) {
-        PageSaver.readMeta(web, (metaUrl, title) -> {
+        PageSaver.readMeta(web, (metaUrl, title, notFound) -> {
+            if (notFound) {
+                // dnd.su answers unknown addresses with its own /404/ page: never archive it.
+                skipped++;
+                savedUrls.add(Archive.normalize(url));
+                index++;
+                next();
+                return;
+            }
+            final String finalUrl = metaUrl != null && WebUtils.isDnd(metaUrl) ? metaUrl : url;
             final String finalTitle = (title == null || title.trim().isEmpty())
-                    ? titleFromUrl(url) : title.trim();
+                    ? titleFromUrl(finalUrl) : title.trim();
             progress("Сохраняем: " + Ui.ellipsize(finalTitle, 40));
-            PageSaver.save(activity, web, bridge, url, finalTitle, cat.key, new PageSaver.Result() {
+            PageSaver.save(activity, web, bridge, finalUrl, finalTitle, cat.key, new PageSaver.Result() {
                 @Override
                 public void onSaved(long bytes) {
                     savedUrls.add(Archive.normalize(url));
+                    savedUrls.add(Archive.normalize(finalUrl));
                     done++;
                     index++;
                     next();
@@ -402,7 +426,7 @@ public class Downloader {
             web.stopLoading();
         } catch (Exception ignored) {
         }
-        if (listener != null) listener.onFinished(done, failed, error);
+        if (listener != null) listener.onFinished(done, failed, skipped, error);
         handler.postDelayed(this::destroy, 600);
     }
 

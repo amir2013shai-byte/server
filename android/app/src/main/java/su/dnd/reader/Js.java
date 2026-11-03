@@ -41,6 +41,12 @@ public final class Js {
         return get(c, "reader").replace("__DARK__", dark ? "true" : "false");
     }
 
+    public static String highlight(Context c, String query) {
+        String safe = query == null ? "" : query.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", " ").replace("\r", " ");
+        return get(c, "highlight").replace("__QUERY__", "\"" + safe + "\"");
+    }
+
     public static String find(Context c, String query) {
         String safe = query == null ? "" : query.replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("\n", " ").replace("\r", " ");
