@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/dndBg"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp"
+        android:background="?attr/dndTopbar"
+        android:elevation="3dp">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:padding="10dp"
+            android:src="@drawable/ic_back"
+            android:tint="?attr/dndTopbarText"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Назад" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="4dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Трекер боя"
+                android:textColor="?attr/dndTopbarText"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvRound"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Раунд 1"
+                android:alpha="0.7"
+                android:textColor="?attr/dndTopbarText"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnReset"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:padding="10dp"
+            android:src="@drawable/ic_delete"
+            android:tint="?attr/dndTopbarText"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Новый бой" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_card"
+        android:layout_margin="12dp"
+        android:padding="14dp">
+
+        <TextView
+            android:id="@+id/tvCurrentLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ТЕКУЩИЙ ХОД"
+            android:textColor="?attr/dndTextDim"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvCurrent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:text="Бой не начат"
+            android:textColor="?attr/dndText"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvCurrentInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="2dp"
+            android:text="Добавьте участников и бросьте инициативу"
+            android:textColor="?attr/dndTextDim"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="12dp">
+
+            <Button
+                android:id="@+id/btnNext"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Следующий ход"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_button_primary" />
+
+            <Button
+                android:id="@+id/btnRollInit"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="Инициатива"
+                android:textAllCaps="false"
+                android:textColor="?attr/dndAccent"
+                android:background="?android:attr/selectableItemBackground" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="4dp"
+        android:text="ПОРЯДОК ХОДА"
+        android:textColor="?attr/dndTextDim"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+
+    <ListView
+        android:id="@+id/list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="?attr/dndDivider"
+        android:dividerHeight="1dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:clipToPadding="false" />
+
+    <TextView
+        android:id="@+id/tvEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="32dp"
+        android:text="Пока никого нет.\nДобавьте героев и монстров — инициатива бросится автоматически."
+        android:textColor="?attr/dndTextDim"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="?attr/dndTopbar"
+        android:elevation="6dp">
+
+        <Button
+            android:id="@+id/btnAdd"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Добавить участника"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/bg_button_primary" />
+
+        <Button
+            android:id="@+id/btnAddMonster"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Из бестиария"
+            android:textAllCaps="false"
+            android:textColor="?attr/dndAccent"
+            android:background="?android:attr/selectableItemBackground" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/syncHost"
+        android:layout_width="1dp"
+        android:layout_height="1dp" />
+</LinearLayout>

@@ -20,6 +20,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
@@ -49,6 +50,7 @@ public class LibraryActivity extends Activity {
     private String activeQuery = "";
     private boolean searching;
     private int searchGeneration;
+    private boolean favoritesOnly;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -153,9 +155,12 @@ public class LibraryActivity extends Activity {
         String q = raw.toLowerCase(Locale.ROOT).replace('ё', 'е');
         shown.clear();
         for (Archive.Page p : all) {
+            if (favoritesOnly && !Favorites.isFavorite(this, p.url)) continue;
+            String note = Favorites.note(this, p.url);
             if (q.isEmpty()
                     || (p.title != null && p.title.toLowerCase(Locale.ROOT).replace('ё', 'е').contains(q))
                     || (p.url != null && p.url.toLowerCase(Locale.ROOT).contains(q))
+                    || note.toLowerCase(Locale.ROOT).replace('ё', 'е').contains(q)
                     || Categories.titleOf(p.category).toLowerCase(Locale.ROOT).contains(q)) {
                 shown.add(p);
             }
@@ -219,30 +224,88 @@ public class LibraryActivity extends Activity {
     }
 
     private void showItemMenu(final Archive.Page page) {
-        String[] items = {"Открыть", "Поделиться ссылкой", "Скачать заново (онлайн)", "Удалить"};
+        final boolean favorite = Favorites.isFavorite(this, page.url);
+        String[] items = {
+                "Открыть",
+                favorite ? "Убрать из избранного" : "В избранное",
+                "Заметка…",
+                "Поделиться ссылкой",
+                "Скачать заново (онлайн)",
+                "Удалить"
+        };
         Ui.dialog(this).setTitle(page.title).setItems(items, (d, which) -> {
             switch (which) {
                 case 0:
                     open(page, null);
                     break;
                 case 1:
+                    Favorites.toggle(this, page.url);
+                    reload();
+                    break;
+                case 2:
+                    editNote(page);
+                    break;
+                case 3:
                     Intent share = new Intent(Intent.ACTION_SEND);
                     share.setType("text/plain");
                     share.putExtra(Intent.EXTRA_TEXT, page.url);
                     startActivity(Intent.createChooser(share, "Поделиться ссылкой"));
                     break;
-                case 2:
+                case 4:
                     Archive.delete(this, page.url);
                     Intent i = new Intent(this, MainActivity.class);
                     i.putExtra(MainActivity.EXTRA_OPEN, page.url);
                     i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
                     startActivity(i);
                     break;
-                case 3:
+                case 5:
                     confirmDelete(page);
                     break;
             }
         }).setNegativeButton("Отмена", null).show();
+    }
+
+    /** Note editor for a saved page. */
+    private void editNote(final Archive.Page page) {
+        final EditText text = new EditText(this);
+        text.setText(Favorites.note(this, page.url));
+        text.setTextSize(14);
+        text.setMinLines(4);
+        text.setHint("Например: выучить к следующей сессии");
+        text.setTextColor(Ui.color(this, R.attr.dndText));
+        text.setHintTextColor(Ui.color(this, R.attr.dndTextDim));
+        text.setBackgroundResource(R.drawable.bg_input);
+        text.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+
+        LinearLayout box = Ui.vertical(this);
+        int pad = Ui.dp(this, 20);
+        box.setPadding(pad, Ui.dp(this, 4), pad, 0);
+        box.addView(text);
+
+        final AlertDialog dialog = Ui.dialog(this)
+                .setTitle(page.title)
+                .setView(box)
+                .setPositiveButton("Сохранить", null)
+                .setNeutralButton("Удалить", null)
+                .setNegativeButton("Отмена", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String value = text.getText().toString();
+                Favorites.setNote(this, page.url, value);
+                if (!value.trim().isEmpty() && !Favorites.isFavorite(this, page.url)) {
+                    Favorites.toggle(this, page.url);
+                }
+                dialog.dismiss();
+                reload();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                Favorites.setNote(this, page.url, "");
+                dialog.dismiss();
+                reload();
+            });
+        });
+        dialog.show();
     }
 
     private void confirmDelete(final Archive.Page page) {
@@ -258,16 +321,40 @@ public class LibraryActivity extends Activity {
     }
 
     private void showMore() {
-        String[] items = {"Скачать раздел…", "Кубики и броски", "Очистить библиотеку", "Настройки", "Открыть сайт dnd.su"};
+        String[] items = {
+                "Скачать раздел…",
+                favoritesOnly ? "Показывать все страницы" : "Только избранное",
+                "Избранное и заметки",
+                "Трекер боя",
+                "Кубики и броски",
+                "Экспорт библиотеки",
+                "Очистить библиотеку",
+                "Настройки",
+                "Открыть сайт dnd.su"
+        };
         Ui.dialog(this).setItems(items, (d, which) -> {
             switch (which) {
                 case 0:
                     SyncUi.show(this, syncHost, this::reload);
                     break;
                 case 1:
-                    startActivity(new Intent(this, DiceActivity.class));
+                    favoritesOnly = !favoritesOnly;
+                    filter(search.getText().toString());
+                    Ui.toast(this, favoritesOnly ? "Только избранное" : "Показаны все страницы");
                     break;
                 case 2:
+                    startActivity(new Intent(this, FavoritesActivity.class));
+                    break;
+                case 3:
+                    startActivity(new Intent(this, EncounterActivity.class));
+                    break;
+                case 4:
+                    startActivity(new Intent(this, DiceActivity.class));
+                    break;
+                case 5:
+                    ExportUi.show(this);
+                    break;
+                case 6:
                     Ui.dialog(this).setTitle("Очистить библиотеку?")
                             .setMessage("Будут удалены все сохранённые страницы (" + all.size() + ").")
                             .setPositiveButton("Очистить", (dd, w) -> {
@@ -278,10 +365,10 @@ public class LibraryActivity extends Activity {
                             .setNegativeButton("Отмена", null)
                             .show();
                     break;
-                case 3:
+                case 7:
                     startActivity(new Intent(this, SettingsActivity.class));
                     break;
-                case 4:
+                case 8:
                     Intent i = new Intent(this, MainActivity.class);
                     i.putExtra(MainActivity.EXTRA_OPEN, "https://dnd.su/");
                     i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -355,12 +442,19 @@ public class LibraryActivity extends Activity {
 
             final Archive.Page p = shown.get(position - hits.size());
             delete.setVisibility(View.VISIBLE);
-            title.setText(p.title);
-            meta.setMaxLines(1);
+            boolean favorite = Favorites.isFavorite(LibraryActivity.this, p.url);
+            String note = Favorites.note(LibraryActivity.this, p.url);
+            title.setText((favorite ? "★ " : "") + p.title);
             String date = dateFormat.format(new Date(p.savedAt));
-            meta.setText(Categories.titleOf(p.category) + " · " + Ui.formatBytes(p.bytes) + " · " + date);
+            if (note.isEmpty()) {
+                meta.setMaxLines(1);
+                meta.setText(Categories.titleOf(p.category) + " · " + Ui.formatBytes(p.bytes) + " · " + date);
+            } else {
+                meta.setMaxLines(2);
+                meta.setText(note);
+            }
             Categories.Cat cat = Categories.byKey(p.category);
-            icon.setImageResource(cat != null ? cat.icon : R.drawable.ic_book);
+            icon.setImageResource(favorite ? R.drawable.ic_star : (cat != null ? cat.icon : R.drawable.ic_book));
             delete.setOnClickListener(v -> confirmDelete(p));
             return view;
         }

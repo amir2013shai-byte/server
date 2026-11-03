@@ -98,6 +98,30 @@ public final class Prefs {
         sp(c).edit().putString("last_url", url).apply();
     }
 
+    public static String favorites(Context c) {
+        return sp(c).getString("favorites", "[]");
+    }
+
+    public static void setFavorites(Context c, String json) {
+        sp(c).edit().putString("favorites", json == null ? "[]" : json).apply();
+    }
+
+    public static String notes(Context c) {
+        return sp(c).getString("notes", "{}");
+    }
+
+    public static void setNotes(Context c, String json) {
+        sp(c).edit().putString("notes", json == null ? "{}" : json).apply();
+    }
+
+    public static String encounter(Context c) {
+        return sp(c).getString("encounter", "");
+    }
+
+    public static void setEncounter(Context c, String json) {
+        sp(c).edit().putString("encounter", json == null ? "" : json).apply();
+    }
+
     public static String diceHistory(Context c) {
         return sp(c).getString("dice_history", "[]");
     }

@@ -45,10 +45,28 @@
             android:label="Офлайн-библиотека" />
 
         <activity
+            android:name=".EncounterActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|locale"
+            android:label="Трекер боя" />
+
+        <activity
+            android:name=".FavoritesActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|locale"
+            android:label="Избранное и заметки" />
+
+        <activity
             android:name=".DiceActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|fontScale|locale"
             android:label="Кубики" />
+
+        <provider
+            android:name=".FilesProvider"
+            android:authorities="su.dnd.reader.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <activity
             android:name=".SettingsActivity"

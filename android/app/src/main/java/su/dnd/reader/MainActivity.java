@@ -541,6 +541,10 @@ public class MainActivity extends android.app.Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == ExportUi.REQ_SAVE_FILE) {
+            ExportUi.handleResult(this, requestCode, resultCode, data);
+            return;
+        }
         if (requestCode == REQ_FILE) {
             if (fileCallback != null) {
                 Uri uri = (resultCode == RESULT_OK && data != null) ? data.getData() : null;
@@ -701,6 +705,80 @@ public class MainActivity extends android.app.Activity {
         });
     }
 
+    /** URL that bookmarks and notes are attached to (local copies use their source URL). */
+    private String pageUrlForFavorites() {
+        if (localPage && originalUrl != null) return originalUrl;
+        if (currentUrl != null && WebUtils.isDnd(currentUrl)) return currentUrl;
+        String live = web == null ? null : web.getUrl();
+        if (live != null && WebUtils.isDnd(live)) return live;
+        return currentUrl == null ? HOME : currentUrl;
+    }
+
+    private void editNoteForPage() {
+        final String url = pageUrlForFavorites();
+        final android.widget.EditText text = new android.widget.EditText(this);
+        text.setText(Favorites.note(this, url));
+        text.setTextSize(14);
+        text.setMinLines(4);
+        text.setHint("Например: не забыть про сопротивление огню");
+        text.setTextColor(Ui.color(this, R.attr.dndText));
+        text.setHintTextColor(Ui.color(this, R.attr.dndTextDim));
+        text.setBackgroundResource(R.drawable.bg_input);
+        text.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+
+        LinearLayout box = Ui.vertical(this);
+        int pad = Ui.dp(this, 20);
+        box.setPadding(pad, Ui.dp(this, 4), pad, 0);
+        TextView title = Ui.secondary(this, pageTitle == null ? url : pageTitle, 12);
+        box.addView(title);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = Ui.dp(this, 8);
+        text.setLayoutParams(lp);
+        box.addView(text);
+
+        final AlertDialog dialog = Ui.dialog(this)
+                .setTitle("Заметка")
+                .setView(box)
+                .setPositiveButton("Сохранить", null)
+                .setNeutralButton("Удалить", null)
+                .setNegativeButton("Отмена", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String value = text.getText().toString();
+                Favorites.setNote(this, url, value);
+                if (!value.trim().isEmpty() && !Favorites.isFavorite(this, url)) {
+                    Favorites.toggle(this, url);
+                }
+                dialog.dismiss();
+                Ui.toast(this, value.trim().isEmpty() ? "Заметка удалена" : "Заметка сохранена");
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                Favorites.setNote(this, url, "");
+                dialog.dismiss();
+                Ui.toast(this, "Заметка удалена");
+            });
+        });
+        dialog.show();
+    }
+
+    private void printPage() {
+        if (web == null) return;
+        try {
+            android.print.PrintManager pm = (android.print.PrintManager) getSystemService(PRINT_SERVICE);
+            if (pm == null) {
+                Ui.toast(this, "Печать недоступна на этом устройстве");
+                return;
+            }
+            String name = pageTitle == null || pageTitle.trim().isEmpty() ? "D&D.su" : pageTitle;
+            android.print.PrintDocumentAdapter adapter = web.createPrintDocumentAdapter(name);
+            pm.print(name, adapter, null);
+        } catch (Exception e) {
+            Ui.toast(this, "Не удалось открыть печать");
+        }
+    }
+
     private void shareLink() {
         String url = localPage ? originalUrl : currentUrl;
         if (url == null) url = HOME;
@@ -726,6 +804,30 @@ public class MainActivity extends android.app.Activity {
                 "Заголовки и ссылки со всего домена dnd.su", v -> {
                     dismiss(holder);
                     SearchUi.show(this, syncHost, url -> load(url));
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_swords, "Трекер боя",
+                "Инициатива, хиты, состояния, раунды", v -> {
+                    dismiss(holder);
+                    startActivity(new Intent(this, EncounterActivity.class));
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_star, "Избранное и заметки",
+                Favorites.count(this) + " в избранном · " + Favorites.noteCount(this) + " с заметкой",
+                v -> {
+                    dismiss(holder);
+                    startActivity(new Intent(this, FavoritesActivity.class));
+                }));
+        final boolean favorite = Favorites.isFavorite(this, pageUrlForFavorites());
+        box.addView(Ui.menuRow(this, favorite ? R.drawable.ic_star : R.drawable.ic_note,
+                favorite ? "Убрать из избранного" : "В избранное",
+                "Быстрый доступ к странице и личные заметки", v -> {
+                    dismiss(holder);
+                    boolean now = Favorites.toggle(this, pageUrlForFavorites());
+                    Ui.toast(this, now ? "Добавлено в избранное" : "Убрано из избранного");
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_note, "Заметка к странице…",
+                "Свои пометки: что запомнить, чем закончилась сессия", v -> {
+                    dismiss(holder);
+                    editNoteForPage();
                 }));
         box.addView(Ui.menuRow(this, R.drawable.ic_dice, "Кубики и броски",
                 "d20, преимущество, модификаторы, история", v -> {
@@ -763,6 +865,16 @@ public class MainActivity extends android.app.Activity {
             dismiss(holder);
             shareLink();
         }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_export, "Экспорт библиотеки",
+                "Один HTML или ZIP — читать на компьютере", v -> {
+                    dismiss(holder);
+                    ExportUi.show(this);
+                }));
+        box.addView(Ui.menuRow(this, R.drawable.ic_note, "Печать / PDF страницы",
+                "Отправить на принтер или сохранить в PDF", v -> {
+                    dismiss(holder);
+                    printPage();
+                }));
 
         box.addView(Ui.sectionHeader(this, "Разделы сайта"));
         for (final Categories.Cat cat : new Categories.Cat[]{Categories.CLASSES, Categories.RACES,
