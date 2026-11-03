@@ -20,6 +20,15 @@ if [ -z "${JAVA_HOME:-}" ] && [ -x "$ROOT/.tools/jre/bin/java" ]; then
   export JAVA_HOME="$ROOT/.tools/jre"
   export PATH="$JAVA_HOME/bin:$PATH"
 fi
+# No JDK/JRE at all: download the portable one (needs python3 + network).
+if [ -z "${JAVA_HOME:-}" ] && ! command -v java >/dev/null 2>&1; then
+  echo "==> Java not found, fetching the portable JRE"
+  bash "$ROOT/scripts/get_jre.sh" "$ROOT/.tools/jre" >/dev/null 2>&1 || true
+  if [ -x "$ROOT/.tools/jre/bin/java" ]; then
+    export JAVA_HOME="$ROOT/.tools/jre"
+    export PATH="$JAVA_HOME/bin:$PATH"
+  fi
+fi
 
 if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
   JAVA="$JAVA_HOME/bin/java"
