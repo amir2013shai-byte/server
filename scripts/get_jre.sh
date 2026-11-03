@@ -29,6 +29,10 @@ with zipfile.ZipFile(wheel) as z:
 PY
 mkdir -p "$DEST"
 cp -r "$TMP"/x/jdk4py/java-runtime/* "$DEST"/
+# python's zipfile does not restore the executable bit, so fix it explicitly
+chmod +x "$DEST"/bin/* 2>/dev/null || true
+chmod +x "$DEST"/lib/jexec 2>/dev/null || true
+chmod +x "$DEST"/lib/jspawnhelper 2>/dev/null || true
 # jmods are only needed to build the JDK itself
 rm -rf "$DEST/jmods" "$DEST/legal" "$DEST/lib/src.zip"
 echo "==> JRE installed: $DEST"
